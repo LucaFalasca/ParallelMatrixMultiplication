@@ -1,0 +1,24 @@
+Process Grid
+E' conveniente vedere i P processi spawnati non come un vettore di lunghezza P bensì come una mesh Pr x Pc = P 
+di processi. La numerazione dei processi può avvenire per row-major-order o per column-major-order,
+ad esempio in una mesh 3x2 si ha:
+- row-major-order: (0 1 2), (3 4 5)
+- column-major-order: (0 1), (2 3), (4 5)
+
+Context
+Ad ogni process grid è associato un contesto (spesso usati come sinonimi) che permette di dividere gli "universi" 
+di message passing in pratica come i comunicatori mpi.
+
+Scoped operations
+Un'operazione che coinvolge più di un tx ed un rx viene detta scoped operation e tutti i processi che partecipano 
+a tale operazione vengono detti scoped processes. 
+In caso si vedano i processi come vettore lo scope di tutti i processi è lo stesso, invece nel caso di mesh posso avere:
+-Row scope, tutti i processi sulla stessa riga partecipano all'operazione
+-Column scope, tutti i processi sulla stessa colonna partecipano all'operazione
+-Mesh scope, tutti i processi della mesh partecipano all'operazione
+
+Array descriptor
+Ogni matrice è associata con un "array descriptor" che descrive, per ogni elemento, la sua posizione nella mesh di processi
+e l'area di memoria associata.
+
+In-Core dense matrices
