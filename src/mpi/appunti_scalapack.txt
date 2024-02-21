@@ -22,3 +22,11 @@ Ogni matrice è associata con un "array descriptor" che descrive, per ogni eleme
 e l'area di memoria associata.
 
 In-Core dense matrices
+Divido la matrice in blocchi di dimensione BRxBC e ogni blocco viene dato ad un processo della process grid
+la quale scorre sulla matrice iniziale e distribuisce i blocchi ai processi.
+Ad esempio se ho una matrice 16x16 faccio blocchi 2x2 e ho 4 processi in una griglia 2x2
+do il blocco 0 al processo 0, il blocco 2 al processo 1, il blocco 8 al processo 2 ed il blocco 9 al processo 3;
+do il blocco 3 al processo 0, il blocco 4 al processo 1, il blocco 10 al processo 2 ed il blocco 11 al processo 3.
+
+Penso che in generale convenga fare che la size della matrice originale viene decomposta in blocchi basandosi 
+sulla size della process grid tipo una matrice 15x15 se ho una process grid 4x4 la decompongo in blocchi 
