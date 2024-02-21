@@ -3,70 +3,41 @@
 #include<string.h>
 #include<stdlib.h>
 #include<stdbool.h>
-#define MAXD 200
-#define MIND -200
-#define BLOCK_ROWS 2 
-#define BLOCK_COLS 2
+#define N 10000 //Number of rows of matrix
+#define M 10000 //Number of columns of matrix and vector size
 
 
-void matrix_multiply(double *mat1, double *mat2, double *res, int r1, int c1, int c2);
-bool checkResult(double *mat1, double *mat2, double *res, int r1, int c1, int c2);
-double randfrom(double min, double max);
-double* generate_matrix(int r, int c);
-
+bool checkResult(int *mat, int *v, int *res);
 
 int main(int argc, char *argv[]){
     int rank, size,tag=0;
-    int r1, c1, r2, c2, npr, npc;
-    double *mat1, *mat2, *res;
+    int *mat, *v, *c;
     MPI_Comm comm;
     MPI_Init(&argc, &argv);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     srand(1);
-    
+
+    v= (int *) malloc(M * sizeof(int));
+    for(int i=0; i<M; i++){
+        int num = rand() % 101;
+        v[i] = num;
+    } 
+
     if(rank==0){
-        /*Get parameters from cmd*/
-        if(argc<7){
-            printf("Usage ./a.out <rows1> <cols1> <rows2> <cols2> <nrproc> <ncproc>\n");
-            exit(1);
-        }
-        //Matrix size
-        r1 = atoi(argv[1]);
-        c1 = atoi(argv[2]);
-        r2 = atoi(argv[3]);
-        c2 = atoi(argv[4]);
+        mat= (int *) malloc(N * M *sizeof(int)); //Cause scatter needs contiguous memory
+        c= (int *) malloc(N * sizeof(int));
+        int nm=rand() % 101;
 
-        /*Check size compatibility for matrix multiply*/
-        if(c1!=r2){
-            printf("Incompatible matrix size for multiplication c1!=r2\n");
-            exit(1);
+        //Generate matrix and vector
+        for(int i=0; i<N; i++){
+            for(int j=0; j<M; j++){
+                mat[i*M+j] = nm;
+            }
         }
-
-        //Process grid size
-        npr = atoi(argv[5]);
-        npc = atoi(argv[6]);
-
-        /*Check size compatibility for process grid*/
-        if((npr*npc)!=size){
-            printf("Process grid size incompatible with number of processes spawned\n");
-            exit(1);
-        }
-
-        
-        /*Generate matrix*/
-        mat1 = generate_matrix(r1, c1);
-        mat2 = generate_matrix(r2, c2);
-        res=(double *) malloc(r1*c2*sizeof(double));
-        if(res==NULL){
-            printf("Error in memory allocation for result matrix\n");
-            exit(1);
-        }
-        memset(res, 0, r1*c2*sizeof(double));
     }
     
-    /*
     // Determine the number of elements to send to each process
         //printf("Comm size: %d\n", size);
         int send_counts[size];
@@ -104,10 +75,19 @@ int main(int argc, char *argv[]){
     if(rank != 0){        
         ret= (int *) malloc(ret_counts[rank] * sizeof(int));
 
+        /*printf("Process %d received array:\n[", rank);
+        for(int i=0; i<send_counts[rank]; i++)
+            printf("%d,", mat_part[i]);
+        printf("]\n");
+        printf("Process %d received vector:\n[", rank);
+        for(int i=0; i<M; i++)
+            printf("%d,", v[i]);
+        printf("]\n");*/
         for(int j=0; j<ret_counts[rank]; j++){
             ret[j] = 0;
             for(int i=0; i<M; i++)
                 ret[j] += mat_part[j*M+i] * v[i];
+            //printf("Process slave  %d sum: %d\n", rank, ret[j]);
 
         }
     }
@@ -115,71 +95,35 @@ int main(int argc, char *argv[]){
     MPI_Gatherv(ret, ret_counts[rank], MPI_INT, c, ret_counts, ret_displacements, MPI_INT, 0, comm);
     if(rank==0){
         
+        /*printf("Result at process %d is:\n[", rank);
+        for(int i=0; i<N; i++){
+            if(i==N-1)
+                printf("%d", c[i]);
+            else
+                printf("%d,", c[i]);
+        }
+        printf("]\n");*/
         printf("Elapsed %lf ms\n", (MPI_Wtime()-t1)*1000);
         if(checkResult(mat, v, c))
             printf("Result is correct\n");
         else
             printf("Result is wrong\n");
     }
-    */
-    
+
     MPI_Finalize();
     return 0;
 }
 
-void matrix_multiply(double *mat1, double *mat2, double *res, int r1, int c1, int c2){
-    int i, j, k;
-    for (i = 0; i < r1; i++) {
-        for (j = 0; j < c2; j++) {
-            res[j*c2+i] = 0;
-            for (k = 0; k < c1; k++) {
-                res[j*c2+i] += mat1[k*c1+i] * mat2[j*c2+k];
-            }
+bool checkResult(int *mat, int *v, int *res){
+    int *correct_res;
+    correct_res = (int *) malloc(N * sizeof(int));
+    for(int i=0; i<N; i++){
+        correct_res[i] = 0;
+        for(int j=0; j<M; j++){
+            correct_res[i] += mat[i*M+j] * v[j];
         }
-    }
-}
-
-bool seqCheckResult(double *mat1, double *mat2, double *res, int r1, int c1, int c2){
-    double *correct_res;
-    correct_res = (double *) malloc(r1*c2*sizeof(double));
-    if(correct_res==NULL){
-        printf("Error in memory allocation for check result\n");
-        exit(1);
-    }
-    int i, j, k;
-    for (i = 0; i < r1; i++) {
-        for (j = 0; j < c2; j++) {
-            correct_res[j*c2+i] = 0;
-            for (k = 0; k < c1; k++) {
-                correct_res[j*c2+i] += mat1[k*c1+i] * mat2[j*c2+k];
-                if(correct_res[j*c2+i]!=res[j*c2+i]){
-                    printf("Error in position %d %d\n", i, j);
-                    return false;
-                }
-            }
-        }
+        if(correct_res[i]!=res[i])
+            return false;
     }
     return true;
-}
-
-/* Generate a random floating point number from min to max */
-double randfrom(double min, double max) 
-{
-    double div = RAND_MAX / (max - min);
-    return min + (rand() / div);
-}
-
-/* Generate random matrix*/
-double *generate_matrix(int r, int c){
-    double *mat=(double *) malloc(r*c*sizeof(double));
-    if(mat==NULL){
-        printf("Error in memory allocation for matrix generation\n");
-        exit(1);
-    }
-    for(int i=0; i<N; i++){
-        for(int j=0; j<M; j++){
-            mat[i*M+j] = randform(MIND, MAXD);
-        }
-    }
-    return mat;
 }
