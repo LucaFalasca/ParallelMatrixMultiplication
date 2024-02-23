@@ -1,2 +1,6 @@
 .vscode/
 *a.out
+/src/cuda/CMakeFiles/
+/src/cuda/cmake_install.cmake
+/src/cuda/CMakeCache.txt
+/src/cuda/Makefile
