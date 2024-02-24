@@ -16,6 +16,7 @@ bool seq_check_result(double *mat1, double *mat2, double *res, int r1, int c1, i
 double rand_from(double min, double max);
 double* generate_matrix(int r, int c);
 void printMatrix(double *mat, int rows, int cols);
+void row_block_cyclic_distribution(double *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank);
 //FOR 2d block cyclic distribution
 //Global array coordinates (i,j) so i*c+j is the linear index of the element
 //Global array element (i,j) destination process (Pr,Pc)=((RSRC+(i-1)/NR)%npr, (CSRC+(k-1)/NC)%npc)
@@ -30,52 +31,54 @@ void printMatrix(double *mat, int rows, int cols);
 
 int main(int argc, char *argv[]){
     int rank, size,tag=0;
-    int r1, c1, r2, c2, npr, npc, nr, nc;
+    int r1, c1, r2, c2, npr, npc, block_size;
     double *mat1, *mat2, *res;
     MPI_Comm comm;
     MPI_Init(&argc, &argv);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
+    /*Get parameters from cmd*/
+    if(argc<8){
+        printf("Usage ./a.out <nrproc> <ncproc> <blockr> <blocks> <rows1> <cols1> <rows2> <cols2> \n");
+        exit(1);
+    }
+
+    //Process grid size
+    npr = atoi(argv[1]);
+    npc = atoi(argv[2]);
+
+    /*Check size compatibility for process grid*/
+    if((npr*npc)!=size){
+        printf("Process grid size incompatible with number of processes spawned\n");
+        exit(1);
+    }
+    //Block size
+    block_size = atoi(argv[3]);
+
+    //Matrix size
+    r1 = atoi(argv[4]);
+    c1 = atoi(argv[5]);
+    r2 = atoi(argv[6]);
+    c2 = atoi(argv[7]);
+
+    /*Check size compatibility for matrix multiply*/
+    if(c1!=r2){
+        printf("Incompatible matrix size for multiplication c1!=r2\n");
+        exit(1);
+    }
+
+    #ifdef DEBUG
+        if(rank==0){
+            printf("Number of processes: %d\n", size);
+            printf("Process grid size: %d x %d\n", npr, npc);
+            printf("Block size: %d x %d\n", block_size, block_size);
+            printf("Matrix1 size: %d x %d\n", r1, c1);
+            printf("Matrix2 size: %d x %d\n", r2, c2);
+        }
+    #endif
+
     if(rank==0){
-        /*Get parameters from cmd*/
-        if(argc<9){
-            printf("Usage ./a.out <nrproc> <ncproc> <blockr> <blocks> <rows1> <cols1> <rows2> <cols2> \n");
-            exit(1);
-        }
-
-        //Process grid size
-        npr = atoi(argv[1]);
-        npc = atoi(argv[2]);
-
-        /*Check size compatibility for process grid*/
-        if((npr*npc)!=size){
-            printf("Process grid size incompatible with number of processes spawned\n");
-            exit(1);
-        }
-        //Block size
-        nr = atoi(argv[3]);
-        nc = atoi(argv[4]);
-
-        //Matrix size
-        r1 = atoi(argv[5]);
-        c1 = atoi(argv[6]);
-        r2 = atoi(argv[7]);
-        c2 = atoi(argv[8]);
-
-        /*Check size compatibility for matrix multiply*/
-        if(c1!=r2){
-            printf("Incompatible matrix size for multiplication c1!=r2\n");
-            exit(1);
-        }
-
-        #ifdef DEBUG
-        printf("process grid size: %d x %d\n", npr, npc);
-        printf("block size: %d x %d\n", nr, nc);
-        printf("matrix1 size: %d x %d\nmatrix2 size: %d x %d\n", r1, c1, r2, c2);
-        #endif
-        
         /*Generate matrix*/
         srand(1);
         mat1 = generate_matrix(r1, c1);
@@ -92,9 +95,15 @@ int main(int argc, char *argv[]){
         #endif
     }
     
+    row_block_cyclic_distribution(mat1, r1, c1, block_size, npc, comm, rank);
+
+    //Scatter data
+    //MPI_Scatterv(SendBuff, sendSizeArray, displacementArray, MPI_DOUBLE, recvBuff, recvSize, MPI_DOUBLE, 0, comm);
+
+    
     /*
     // Determine the number of elements to send to each process
-        //printf("Comm size: %d\n", size);
+        //
         int send_counts[size];
         int ret_counts[size];
         int displacements[size];
@@ -214,8 +223,81 @@ void printMatrix(double *mat, int row, int col) {
     printf("Matrix:\n");
     for (int i = 0; i < row; i++) {
         for (int j = 0; j < col; j++) {
-            printf("%19.12lf", mat[i*col+j]);
+            //printf("%19.12lf", mat[i*col+j]);
+            printf("%19.2lf", mat[i*col+j]);
         }
         printf("\n");
     }
 }
+
+//This function is used to distribute block of rows of a matrix over the process cyclically 
+void row_block_cyclic_distribution(double *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank){
+    //MPI_TYPE_INDEXED(count, array_of_blocklengths, array_of_displacements, oldtype, newtype) Potrebbe risolvere il problema di dividere l'array in blocchi di size diversa
+    int num_blocks = row/block_size;
+    int rem = row%block_size;
+    int pid_norm=rank%npc;
+    int *block_lenghts;
+    int *block_displacements;
+    double *recv_buff;
+    int max_recv_cnt=((2*block_size)-1)*col;
+    MPI_Datatype mat_blocks, cyclic;
+    MPI_Aint extent, lb;
+
+    recv_buff = (double *) malloc(max_recv_cnt*sizeof(double));
+    if(recv_buff==NULL){
+        printf("Error in memory allocation for recv_buff in row_block_cyclic_distribution\n");
+        exit(1);
+    }
+
+    if(rem!=0) num_blocks++;
+
+    block_lenghts = (int *) malloc(num_blocks*sizeof(int));
+    if(block_lenghts==NULL){
+        printf("Error in memory allocation for block_lenghts in row_block_cyclic_distribution\n");
+        exit(1);
+    }
+    block_displacements = (int *) malloc(num_blocks*sizeof(int));
+    if(block_displacements==NULL){
+        printf("Error in memory allocation for block_displacements in row_block_cyclic_distribution\n");
+        exit(1);
+    }
+    for(int i=0; i<num_blocks; i++){
+        if((rem!=0)&&(i==num_blocks-1)) block_lenghts[i] = rem*col;
+        else block_lenghts[i] = block_size*col;
+        block_displacements[i] = i*block_size*col;
+    }
+    MPI_Barrier(comm);
+    if(rank==0){
+        printf("There are %d blocks\n", num_blocks);   
+        printf("Block lenghts\n");
+        for(int i=0; i<num_blocks; i++){
+            printf("%d \n", block_lenghts[i]);
+        }
+        printf("Block displacements\n");
+        for(int i=0; i<num_blocks; i++){
+            printf("%d \n", block_displacements[i]);
+        }
+        printf("So blocks are:\n");
+        for(int i=0; i<num_blocks; i++){
+            printf("Block %d\n", i);
+            for(int j=0; j<block_lenghts[i]; j++){
+                printf("%19.2lf", mat[block_displacements[i]+j]);
+            }
+            printf("\n");
+        }
+    }
+
+    
+    MPI_Type_indexed(num_blocks, block_lenghts, block_displacements, MPI_DOUBLE, &mat_blocks);
+    MPI_Type_get_extent(MPI_DOUBLE, &lb, &extent);
+    //MPI_Type_create_resized(mat_blocks, 0, extent, &cyclic);
+    //MPI_Type_commit(&cyclic);
+    MPI_Scatter(mat, 1, mat_blocks, recv_buff, max_recv_cnt, MPI_DOUBLE, 0, comm);
+
+    MPI_Barrier(comm);
+    printf("Rank %d received\n", rank);
+    for(int i=0; i<max_recv_cnt; i++){
+        printf("%19.2lf", recv_buff[i]);
+    }
+}
+

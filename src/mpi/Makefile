@@ -8,7 +8,7 @@ debug:
 
 #pgr and pgc are process grid number of rows and columns
 run:
-	mpirun -np ${np} --oversubscribe ./a.out ${row1} ${col1} ${row2} ${col2} ${pgr} ${pgc}
+	mpirun -np ${np} --oversubscribe ./a.out ${pgr} ${pgc} ${bs} ${row1} ${col1} ${row2} ${col2}
 
-run_test:
-	mpirun -np 4 --oversubscribe ./a.out 2 2 2 2 4 4 4 5 
+run_test_rbc:
+	mpirun -np 2 --oversubscribe ./a.out 1 2 2 5 3 3 5
