@@ -1,7 +1,10 @@
 default: build
 
 build:
-	mpicc mat_mul.c -O3
+	gcc -c util/utils.c -o util/utils.o
+	gcc -c mat_generator/mat_generator.c -o mat_generator/mat_generator.o
+	ar rcs my_lib.a util/utils.o mat_generator.o
+	mpicc mat_mul.c -O3 -L. -lmy_lib -o a.out
 
 debug:
 	mpicc -DDEBUG mat_mul.c -O3 

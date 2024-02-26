@@ -3,8 +3,6 @@
 #include<string.h>
 #include<stdlib.h>
 #include<stdbool.h>
-#define MAXD 200
-#define MIND -200
 #define BLOCK_ROWS 2 
 #define BLOCK_COLS 2
 #define RSRC 0
@@ -13,9 +11,6 @@
 
 void matrix_multiply(double *mat1, double *mat2, double *res, int r1, int c1, int c2);
 bool seq_check_result(double *mat1, double *mat2, double *res, int r1, int c1, int c2);
-double rand_from(double min, double max);
-double* generate_matrix(int r, int c);
-void printMatrix(double *mat, int rows, int cols);
 void row_block_cyclic_distribution(double *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank);
 //FOR 2d block cyclic distribution
 //Global array coordinates (i,j) so i*c+j is the linear index of the element
@@ -79,10 +74,7 @@ int main(int argc, char *argv[]){
     #endif
 
     if(rank==0){
-        /*Generate matrix*/
-        srand(1);
-        mat1 = generate_matrix(r1, c1);
-        mat2 = generate_matrix(r2, c2);
+        
         res=(double *) malloc(r1*c2*sizeof(double));
         if(res==NULL){
             printf("Error in memory allocation for result matrix\n");
@@ -96,67 +88,6 @@ int main(int argc, char *argv[]){
     }
     
     row_block_cyclic_distribution(mat1, r1, c1, block_size, npc, comm, rank);
-
-    //Scatter data
-    //MPI_Scatterv(SendBuff, sendSizeArray, displacementArray, MPI_DOUBLE, recvBuff, recvSize, MPI_DOUBLE, 0, comm);
-
-    
-    /*
-    // Determine the number of elements to send to each process
-        //
-        int send_counts[size];
-        int ret_counts[size];
-        int displacements[size];
-        int ret_displacements[size];
-        int elem_per_process = (int) (N/ (size-1))*M; //Ad ogni processo va una riga da M elementi
-        int rem = N % (size-1);
-        int *mat_part;
-        int *local_v;
-        int *ret;
-        send_counts[0] = 0; //Send count will receive no data
-        displacements[0] = 0; //Displacement is 0 for process 0
-        ret_counts[0] = 0;
-        ret_displacements[0] = 0;
-        
-        MPI_Barrier(comm);//Sync processes
-        double t1; 
-        t1 = MPI_Wtime();
-        //Split data among processes except process 0
-        for (int i = 1; i < size; i++) {
-            send_counts[i] = elem_per_process + (i <= rem ? M : 0); //Add the remaining rows to the first processes, so M ints 
-            ret_counts[i] = (elem_per_process + (i <= rem ? M : 0))/M;
-            displacements[i] = (i > 0) ? displacements[i - 1] + send_counts[i - 1] : 0;
-            ret_displacements[i] = (i > 0) ? ret_displacements[i - 1] + ret_counts[i - 1] : 0;
-            //printf("Process %d: send count %d\n", i, send_counts[i]);
-        }
-
-        //Allocate memory for the scattered data to receive and do scatter
-        mat_part = rank == 0 ? (int *)( MPI_IN_PLACE ) : (int *) malloc(send_counts[rank] * sizeof(int));
-        MPI_Scatterv(mat, send_counts, displacements, MPI_INT, mat_part, send_counts[rank], MPI_INT, 0, comm);
-        //Broadcast vector
-        MPI_Bcast(v, M, MPI_INT, 0, comm);
-
-    if(rank != 0){        
-        ret= (int *) malloc(ret_counts[rank] * sizeof(int));
-
-        for(int j=0; j<ret_counts[rank]; j++){
-            ret[j] = 0;
-            for(int i=0; i<M; i++)
-                ret[j] += mat_part[j*M+i] * v[i];
-
-        }
-    }
-    
-    MPI_Gatherv(ret, ret_counts[rank], MPI_INT, c, ret_counts, ret_displacements, MPI_INT, 0, comm);
-    if(rank==0){
-        
-        printf("Elapsed %lf ms\n", (MPI_Wtime()-t1)*1000);
-        if(checkResult(mat, v, c))
-            printf("Result is correct\n");
-        else
-            printf("Result is wrong\n");
-    }
-    */
     
     MPI_Finalize();
     return 0;
@@ -197,38 +128,7 @@ bool seq_check_result(double *mat1, double *mat2, double *res, int r1, int c1, i
     return true;
 }
 
-/* Generate a random floating point number from min to max */
-double rand_from(double min, double max) 
-{
-    double div = RAND_MAX / (max - min);
-    return min + (rand() / div);
-}
 
-/* Generate random matrix*/
-double *generate_matrix(int row, int col){
-    double *mat=(double *) malloc(row*col*sizeof(double));
-    if(mat==NULL){
-        printf("Error in memory allocation for matrix generation\n");
-        exit(1);
-    }
-    for(int i=0; i<row; i++){
-        for(int j=0; j<col; j++){
-            mat[i*col+j] = rand_from(MIND, MAXD);
-        }
-    }
-    return mat;
-}
-
-void printMatrix(double *mat, int row, int col) {
-    printf("Matrix:\n");
-    for (int i = 0; i < row; i++) {
-        for (int j = 0; j < col; j++) {
-            //printf("%19.12lf", mat[i*col+j]);
-            printf("%19.2lf", mat[i*col+j]);
-        }
-        printf("\n");
-    }
-}
 
 //This function is used to distribute block of rows of a matrix over the process cyclically 
 void row_block_cyclic_distribution(double *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank){
