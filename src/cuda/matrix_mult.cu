@@ -15,19 +15,22 @@
 //#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 2
+#define BD 32
 
 const dim3 BLOCK_DIM(BD);
 
 // Simple CPU implementation of matrix addition.
-void CpuMatrixVector(int rows, int cols, const float* A, const float* x, float* y) {
-  for (int row = 0; row < rows; ++row) {
+void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float* y) {
+  for (int row = 0; row < m; ++row) {
     float t=0.0;
-    for (int col = 0; col < cols; ++col) {
-      int idx = row * cols + col;
-      t += A[idx] * x[col];
+    for(int i = 0; i < n; i++){
+      for (int col = 0; col < k; ++col) {
+        int idx = row * k + col;
+        int icx = i * n + col;
+        t += A[idx] * x[icx];
+      }
+      y[i + row * n] = t;
     }
-    y[row] = t;
   }
 }
 
@@ -51,19 +54,19 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   }
 }
 
-__global__ void gpuMatrixVector(int rows, int cols, int n, const float* A,
+__global__ void gpuMatrixVector(int m, int k, int n, const float* A,
 				const float* x, float* y) {
   __shared__ float aux[BD];
   int tc     = threadIdx.x;
   int row    = blockIdx.x;
-  if (row < rows) {
+  if (row < m) {
     // Starting address of indexing within matrix A
     for(int i = 0; i < n; i++){
-      int idxm = row*cols+tc;
+      int idxm = row*k+tc;
       float t  = 0.0;
       int q = 0;
       aux[tc] = 0.0;
-      for (int ic= tc;  ic<cols; ic += blockDim.x) {
+      for (int ic= tc;  ic<k; ic += blockDim.x) {
         int icx = i * n + ic;
         t += A[idxm]*x[icx];
         #ifdef _DEBUG
@@ -143,7 +146,8 @@ int main(int argc, char** argv) {
   
 
   std::cout << "Matrix-vector product: 1D thread block version " << std::endl;
-  std::cout << "Test case: " << m  << " x " << k << std::endl;
+  std::cout << "Test case: [" << m  << "x" << k << "] x ["<< k << "x" << n << "]" << std::endl;
+  std::cout << "m = " << m  << " | k = " << k << "| n = "<< n << std::endl;
 // ---------------------- Device memory initialisation ---------------------- //
 
   float *d_A, *d_x, *d_y;
@@ -163,14 +167,14 @@ int main(int argc, char** argv) {
   // Create the CUDA SDK timer.
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
-  /*
+  
   timer->start();
-  CpuMatrixVector(m, k, h_A, h_x, h_y);
+  CpuMatrixVector(m, k, n, h_A, h_x, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  */
+  
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
