@@ -1,14 +1,16 @@
 default: build
 
 build:
-	mpicc mat_mul.c -O3
+	gcc -c util/utils.c -o util/utils.o
+	ar rcs libmy_lib.a util/utils.o
+	mpicc mat_mul.c -O3 -L. -lmy_lib
 
 debug:
 	mpicc -DDEBUG mat_mul.c -O3 
 
 #pgr and pgc are process grid number of rows and columns
 run:
-	mpirun -np ${np} --oversubscribe ./a.out ${row1} ${col1} ${row2} ${col2} ${pgr} ${pgc}
+	mpirun -np ${np} --oversubscribe ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2}
 
-run_test:
-	mpirun -np 4 --oversubscribe ./a.out 2 2 2 2 4 4 4 5 
+runt1:
+	mpirun -np 9 --oversubscribe ./a.out 3 3 2 data/matrix/mat1_5x7 5 7 data/matrix/mat2_7x9 7 9

@@ -3,8 +3,8 @@
 #include<string.h>
 #include<stdlib.h>
 #include<stdbool.h>
-#define N 10000 //Number of rows of matrix
-#define M 10000 //Number of columns of matrix and vector size
+#define N 10 //Number of rows of matrix
+#define M 10 //Number of columns of matrix and vector size
 
 
 bool checkResult(int *mat, int *v, int *res);
@@ -28,13 +28,15 @@ int main(int argc, char *argv[]){
     if(rank==0){
         mat= (int *) malloc(N * M *sizeof(int)); //Cause scatter needs contiguous memory
         c= (int *) malloc(N * sizeof(int));
-        int nm=rand() % 101;
-
+        int nm;
         //Generate matrix and vector
         for(int i=0; i<N; i++){
             for(int j=0; j<M; j++){
+                nm=rand() % 101;
                 mat[i*M+j] = nm;
+                printf("%d ", nm);
             }
+            printf("\n");
         }
     }
     
@@ -71,15 +73,16 @@ int main(int argc, char *argv[]){
         MPI_Scatterv(mat, send_counts, displacements, MPI_INT, mat_part, send_counts[rank], MPI_INT, 0, comm);
         //Broadcast vector
         MPI_Bcast(v, M, MPI_INT, 0, comm);
-
+    //MPI_Barrier(comm);
     if(rank != 0){        
         ret= (int *) malloc(ret_counts[rank] * sizeof(int));
 
-        /*printf("Process %d received array:\n[", rank);
+        printf("Process %d received array:\n[", rank);
         for(int i=0; i<send_counts[rank]; i++)
             printf("%d,", mat_part[i]);
         printf("]\n");
-        printf("Process %d received vector:\n[", rank);
+        //MPI_Barrier(comm);
+        /*printf("Process %d received vector:\n[", rank);
         for(int i=0; i<M; i++)
             printf("%d,", v[i]);
         printf("]\n");*/
