@@ -15,7 +15,7 @@
 //#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 32
+#define BD 256
 
 const dim3 BLOCK_DIM(BD);
 
@@ -28,6 +28,9 @@ void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float*
         int idx = row * k + col;
         int icx = i * n + col;
         t += A[idx] * x[icx];
+        #ifdef _DEBUG
+        printf("CPU - A[%d]: %f --- x[%d]: %f\n", idx, A[idx], icx, x[icx]); 
+        #endif
       }
       y[i + row * n] = t;
     }
@@ -54,12 +57,84 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   }
 }
 
-__global__ void gpuMatrixVector(int m, int k, int n, const float* A,
-				const float* x, float* y) {
+__global__ void gpuMatrixVectorV2(int m, int k, int n, const float* A,
+				const float* B, float* y) {
+  __shared__ float aux[BD];
+  extern __shared__ float row_shared[];
+
+  int tc     = threadIdx.x;
+  int row    = blockIdx.x;
+  int size_shared_vec = abs(k / BD);
+  
+  if (row < m) {
+    
+    // Starting address of indexing within matrix A
+    for(int i = 0; i < n; i++){
+      int idxm = row*k+tc;
+      float t  = 0.0;
+      int q = 0;
+      aux[tc] = 0.0;
+      int irs = 0;
+      /*if(i == 0){
+        size_shared_vec = abs(k / BD);
+        if(tc == 0){
+          size_shared_vec += k % BD;
+        }
+        for(int j = 0; j < size_shared_vec; j++){
+          //printf("%d", j + k / BD * tc);
+          row_shared[j] = A[idxm];
+          idxm += blockDim.x;
+        }
+      }*/
+      for (int ic= tc;  ic<k; ic += blockDim.x) {
+        int icx = i * n + ic;
+        if(tc == 0){
+          irs = q;
+        }
+        else{
+          irs = q + size_shared_vec * tc + k % BD;
+        }
+        if(i == 0){
+          int row_temp = A[idxm];
+          row_shared[irs] = row_temp;
+          t+= row_temp*B[icx];
+        }
+        else{
+          t += row_shared[q + size_shared_vec * tc]*B[icx];
+          //t += A[idxm]*B[icx];
+          #ifdef _DEBUG
+          printf("{Blocco %d} P%d-A[%d]: %f --- x[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
+        }
+        q++;
+        idxm +=  blockDim.x;
+      }
+      aux[tc] = t;
+    
+    
+      __syncthreads();
+      for (int s=BD/2; s >=32; s >>=1){
+        if (tc<s)
+          aux[tc] += aux[tc+s]; 
+        __syncthreads();
+      }
+    
+      
+      if (tc<16) rowReduce(aux,tc);
+      
+      if (tc == 0)
+        y[i + row * n] = aux[tc];
+    }
+  }
+}
+
+__global__ void gpuMatrixVectorV1(int m, int k, int n, const float* A,
+				const float* B, float* y) {
   __shared__ float aux[BD];
   int tc     = threadIdx.x;
   int row    = blockIdx.x;
   if (row < m) {
+    
     // Starting address of indexing within matrix A
     for(int i = 0; i < n; i++){
       int idxm = row*k+tc;
@@ -68,17 +143,17 @@ __global__ void gpuMatrixVector(int m, int k, int n, const float* A,
       aux[tc] = 0.0;
       for (int ic= tc;  ic<k; ic += blockDim.x) {
         int icx = i * n + ic;
-        t += A[idxm]*x[icx];
+        t += A[idxm]*B[icx];
         #ifdef _DEBUG
-        printf("{Blocco %d} P%d-A[%d]: %f --- x[%d]: %f\n", row, tc, idxm, A[idxm], icx, x[icx]); 
-        #endif
+          printf("{Blocco %d} P%d-A[%d]: %f --- x[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
         q++;
         idxm +=  blockDim.x;
       }
       aux[tc] = t;
     
     
-    __syncthreads();
+      __syncthreads();
       for (int s=BD/2; s >=32; s >>=1){
         if (tc<s)
           aux[tc] += aux[tc+s]; 
@@ -107,7 +182,7 @@ int main(int argc, char** argv) {
   // ----------------------- Host memory initialisation ----------------------- //
 
   float* h_A = new float[m * k];
-  float* h_x = new float[k * n];
+  float* h_B = new float[k * n];
   float* h_y = new float[m * n];
   float* h_y_d = new float[m * n];
 
@@ -134,9 +209,9 @@ int main(int argc, char** argv) {
   for (int col = 0; col < k; ++col) {
     for(int row = 0; row < n; ++row){
       int idx = row * k + col;
-      h_x[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+      h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
       #ifdef _DEBUG 
-      std::cout << "|" << h_x[idx] << "";
+      std::cout << "|" << h_B[idx] << "";
       #endif
     }
     #ifdef _DEBUG 
@@ -150,15 +225,15 @@ int main(int argc, char** argv) {
   std::cout << "m = " << m  << " | k = " << k << "| n = "<< n << std::endl;
 // ---------------------- Device memory initialisation ---------------------- //
 
-  float *d_A, *d_x, *d_y;
+  float *d_A, *d_B, *d_y;
 
   checkCudaErrors(cudaMalloc((void**) &d_A, m * k * sizeof(float)));
-  checkCudaErrors(cudaMalloc((void**) &d_x, k * n * sizeof(float)));
+  checkCudaErrors(cudaMalloc((void**) &d_B, k * n * sizeof(float)));
   checkCudaErrors(cudaMalloc((void**) &d_y, m * n * sizeof(float)));
 
   // Copy matrices from the host (CPU) to the device (GPU).
   checkCudaErrors(cudaMemcpy(d_A, h_A, m * k * sizeof(float), cudaMemcpyHostToDevice));
-  checkCudaErrors(cudaMemcpy(d_x, h_x, k * n * sizeof(float), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(d_B, h_B, k * n * sizeof(float), cudaMemcpyHostToDevice));
 
   // ------------------------ Calculations on the CPU ------------------------- //
   
@@ -167,29 +242,43 @@ int main(int argc, char** argv) {
   // Create the CUDA SDK timer.
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
-  
+  /*
   timer->start();
-  CpuMatrixVector(m, k, n, h_A, h_x, h_y);
+  CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  
+  */
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
   // Calculate the dimension of the grid of blocks (1D) needed to cover all
   // entries in the matrix and output vector
   const dim3 GRID_DIM(m,1);
+  size_t smemSize = k * sizeof(float);
 
+  //printf("size of shared memory: %d\n", smemSize);
   timer->reset();
   timer->start();
-  gpuMatrixVector<<<GRID_DIM, BLOCK_DIM >>>(m, k, n, d_A, d_x, d_y);
+  gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
   float gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time global memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+
+  printf("size of shared memory: %d\n", smemSize);
+  timer->reset();
+  timer->start();
+  gpuMatrixVectorV2<<<GRID_DIM, BLOCK_DIM,  smemSize>>>(m, k, n, d_A, d_B, d_y);
+  checkCudaErrors(cudaDeviceSynchronize());
+
+  timer->stop();
+  gpuflops=flopcnt/ timer->getTime();
+  std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+
+  
 
   // Download the resulting vector d_y from the device and store it in h_y_d.
   checkCudaErrors(cudaMemcpy(h_y_d, d_y, m*n*sizeof(float),cudaMemcpyDeviceToHost));
@@ -230,11 +319,11 @@ int main(int argc, char** argv) {
   delete timer;
 
   checkCudaErrors(cudaFree(d_A));
-  checkCudaErrors(cudaFree(d_x));
+  checkCudaErrors(cudaFree(d_B));
   checkCudaErrors(cudaFree(d_y));
   
   delete[] h_A;
-  delete[] h_x;
+  delete[] h_B;
   delete[] h_y;
   delete[] h_y_d;
   
