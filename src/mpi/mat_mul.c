@@ -161,11 +161,7 @@ float * block_cyclic_distribution(char *mat_path, int row, int col, int block_si
 
 }
 
-void measure_submatrix_size_without_rem(int row, int col, int block_size, int pg_row, int pg_col){
-    //TODO IMPLEMENTARLA E VEDERE SE POI LA READALL SI PUO USARE SPECIFICANDO LE TAGLIE PRECISE
-}
-
-void measure_submatrix_size_with_rem(int row, int col, int block_size, int pg_row, int pg_col){}
+void measure_submatrix_size(int row, int col, int block_size, int pg_row, int pg_col){}
 
 //This function is used to distribute block of rows of a matrix over the process cyclically 
 void row_block_cyclic_distribution_old(float *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank){
