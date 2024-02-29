@@ -10,4 +10,4 @@ run:
 	./main ${name1} ${row1} ${col1} ${name2} ${row2} ${col2}
 
 runt:
-	./main ../data/matrix/${name1} ${row1} ${col1} ../data/matrix/${name2} ${row2} ${col2}
+	./main ../data/matrix/ ${row1} ${col1} ../data/matrix/ ${row2} ${col2}
