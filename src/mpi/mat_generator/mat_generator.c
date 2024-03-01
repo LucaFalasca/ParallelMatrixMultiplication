@@ -29,18 +29,34 @@ float *generate_matrix(int row, int col){
 }
 
 /* Write matrix to file */
-void write_matrix(float *mat, int rows, int cols, char *filename){
-    FILE *f;
-    f = fopen(filename, "w");
-    if(f==NULL){
-        printf("Error in opening file for writing\n");
+void write_matrix(float *mat, int rows, int cols, char *matpath_txt, char *matpath_bin){
+    FILE *f_txt;
+    FILE *f_binary;
+    f_txt = fopen(matpath_txt, "w"); 
+    f_binary = fopen(matpath_bin, "w+");
+    if(f_txt==NULL){
+        printf("Error in opening file %s for writing\n", matpath_txt);
         exit(1);
     }
+    if(f_binary==NULL){
+        printf("Error in opening file %s for writing\n", matpath_bin);
+        exit(1);
+    }
+
+    //Write txt file
     for(int i=0; i<rows; i++){
         for(int j=0; j<cols; j++){
-            fprintf(f, "%f ", mat[i*cols+j]);
+            fprintf(f_txt, "%f ", mat[i*cols+j]);
         }
-        fprintf(f, "\n");
+        fprintf(f_txt, "\n");
     }
-    fclose(f);
+
+    //Write binary file
+    if(fwrite(mat, sizeof(float), rows*cols, f_binary)==0){
+        printf("Error in writing to binary file %s\n", matpath_bin);
+        exit(1);
+    }
+
+    fclose(f_txt);
+    fclose(f_binary);
 }
