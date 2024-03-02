@@ -156,13 +156,15 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     set_proc_grid_info(proc_info, pg_col);
     compute_block_info(row, col, block_size, pg_row, pg_col, proc_info);
-    recv_block = (float *) malloc((proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col)*sizeof(float));
+
+    printf("Rank (%d, %d) has %d x %d submatrix\n", proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_info->submatrix_row, proc_info->submat_info->submatrix_col);
+    recv_block = (float *) malloc(proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
 
     /*
     Creazione del tipo di dato per la matrice distribuita, ogni processo vedrà solo la sua porzione di matrice,
     la porzione viene definita tramite block cyclic distribution
     */
-    MPI_Type_create_darray(proc_info->size, proc_info->rank, 2, dims, distribs,dargs, proc_dims, MPI_ORDER_C, MPI_INT, &mat_darray);
+    MPI_Type_create_darray(proc_info->size, proc_info->rank, 2, dims, distribs,dargs, proc_dims, MPI_ORDER_C, MPI_FLOAT, &mat_darray);
     MPI_Type_commit(&mat_darray);
 
     //Apertura collettiva del file
@@ -178,16 +180,15 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     }
 
     //Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
-    MPI_File_set_view(mat_file, 2*sizeof(int), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
-    //TODO CRASHA QUI
-    MPI_File_read_all(mat_file, &recv_block, (proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col), MPI_FLOAT, &status);
-    return;
+    MPI_File_set_view(mat_file, 2*sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
+    //TODO La matrice è distribuita strana e ci sono 2 elementi che non si prende nessuno
+    MPI_File_read_all(mat_file, recv_block, proc_info->submat_info->submatrix_row* proc_info->submat_info->submatrix_col, MPI_FLOAT, &status);
 
     MPI_File_close(&mat_file);
     
-    printf("Rank (%d, %d) received\n", proc_info->pg_row_idx, proc_info->pg_col_idx);
+    MPI_Comm_free(&(proc_info->comm));
     for(int i=0; i<(proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col); i++){
-        printf("%f", recv_block[i]);
+        printf("Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
     //MPI_Type_free(&mat_darray);
     
@@ -227,6 +228,8 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
 
     submat_info->submatrix_row=proc_min_blocks_row*block_size;
     submat_info->submatrix_col=proc_min_blocks_col*block_size;
+
+    proc_info->submat_info=submat_info;
     //printf("Process %d in grid position (%d, %d) has %d blocks\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->num_blocks);
 }
 
