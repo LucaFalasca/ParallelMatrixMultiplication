@@ -157,14 +157,14 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     set_proc_grid_info(proc_info, pg_col);
     compute_block_info(row, col, block_size, pg_row, pg_col, proc_info);
 
-    printf("Rank (%d, %d) has %d x %d submatrix\n", proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_info->submatrix_row, proc_info->submat_info->submatrix_col);
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_info->submatrix_row, proc_info->submat_info->submatrix_col);
     recv_block = (float *) malloc(proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
 
     /*
     Creazione del tipo di dato per la matrice distribuita, ogni processo vedrà solo la sua porzione di matrice,
     la porzione viene definita tramite block cyclic distribution
     */
-    MPI_Type_create_darray(proc_info->size, proc_info->rank, 2, dims, distribs,dargs, proc_dims, MPI_ORDER_C, MPI_FLOAT, &mat_darray);
+    MPI_Type_create_darray(proc_info->size, proc_info->rank, 2, dims, distribs, dargs, proc_dims, MPI_ORDER_C, MPI_FLOAT, &mat_darray);
     MPI_Type_commit(&mat_darray);
 
     //Apertura collettiva del file
@@ -186,7 +186,6 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     MPI_File_close(&mat_file);
     
-    MPI_Comm_free(&(proc_info->comm));
     for(int i=0; i<(proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col); i++){
         printf("Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
@@ -203,7 +202,7 @@ void set_proc_grid_info(struct proc_info* proc_info, int pg_col){
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     int num_blocks_row=ceil((float) col/block_size); //Number of blocks for row
     int num_blocks_col=ceil((float) row/block_size); //Number of blocks for col
-    int proc_min_blocks_row, proc_min_blocks_col, proc_max_blocks_row, proc_max_blocks_col;
+    int proc_min_blocks_row, proc_min_blocks_col, proc_extra_blocks_row=0, proc_extra_blocks_col=0;
     int row_rem=row%block_size;
     int col_rem=col%block_size;
     struct proc_submatrix_info *submat_info = (struct proc_submatrix_info *) malloc(sizeof(struct proc_submatrix_info));
@@ -216,19 +215,24 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     tutti i processi con indice di colonna 0 si prendono +1 blocco a riga e se NBC%pg_row!=0 tutta i processi con indice di riga 0 
     si prendono +1 blocco a colonna*/
     proc_min_blocks_row=num_blocks_row/pg_col; 
-    if(((num_blocks_row%pg_col) !=0)&&(proc_info->pg_col_idx==0))
-        proc_max_blocks_row=proc_min_blocks_row++;
-
     proc_min_blocks_col=num_blocks_col/pg_row;
-    if(((num_blocks_col%pg_row) !=0)&&(proc_info->pg_row_idx==0)) 
-        proc_max_blocks_col=proc_min_blocks_col++;
 
-    submat_info->num_blocks_per_row=proc_min_blocks_row;
-    submat_info->num_blocks_per_col=proc_min_blocks_col;
+    //Add extra row blocks to process with row index 0
+    if(((num_blocks_row%pg_col) !=0)&&(proc_info->pg_row_idx==0))
+        proc_extra_blocks_row++;
 
-    submat_info->submatrix_row=proc_min_blocks_row*block_size;
-    submat_info->submatrix_col=proc_min_blocks_col*block_size;
+    //Add extra col blocks to process with col index 0
+    if(((num_blocks_col%pg_row) !=0)&&(proc_info->pg_col_idx==0)) 
+        proc_extra_blocks_col++;
 
+    submat_info->num_blocks_per_row=proc_min_blocks_row+proc_extra_blocks_row;
+    submat_info->num_blocks_per_col=proc_min_blocks_col+proc_extra_blocks_col;
+
+    //TODO ASSEGNARE LA TAGLIA PRECISA DEI BLOCCHI
+    submat_info->submatrix_row=(proc_min_blocks_row*block_size)+(proc_extra_blocks_row*block_size);
+    submat_info->submatrix_col=(proc_min_blocks_col*block_size)+(proc_extra_blocks_col*block_size);
+
+    
     proc_info->submat_info=submat_info;
     //printf("Process %d in grid position (%d, %d) has %d blocks\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->num_blocks);
 }
