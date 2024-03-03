@@ -228,7 +228,14 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     submat_info->num_blocks_per_row=proc_min_blocks_row+proc_extra_blocks_row;
     submat_info->num_blocks_per_col=proc_min_blocks_col+proc_extra_blocks_col;
 
-    //TODO ASSEGNARE LA TAGLIA PRECISA DEI BLOCCHI
+    /*TODO ASSEGNARE LA TAGLIA PRECISA DEI BLOCCHI, in toeria se faccio proc_extra_blocks_row -1 * block size prendo tutti quei blocchi
+      che come row size hanno 2 e poi la col size dipende dal R%block_size, mentre l'ultimo se cè avra size R%block_size*C%block_size
+      pero chi se lo prende il blocco fatto così? In generale solo un processo avrà quello brutto, una possibilità è una variabile
+      condivisa che mantiene il max extra block corrente tra tutti i processi cosi poi ognuno la confronta e capisce se è lui che se lo becca
+      un'altra possibilità è invece fare dei ragionamenti sulla size della matrice, la size dei blocchi e la size della grid
+      cosi che ogni processo sappia ricostruire la size della matrice originale e capire quindi se l'ultimo blocco extra deve
+      essere più piccolo o meno
+    */
     submat_info->submatrix_row=(proc_min_blocks_row*block_size)+(proc_extra_blocks_row*block_size);
     submat_info->submatrix_col=(proc_min_blocks_col*block_size)+(proc_extra_blocks_col*block_size);
 
