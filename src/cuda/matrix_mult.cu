@@ -1,9 +1,8 @@
 // 
-// Author: Salvatore Filippone salvatore.filippone@cranfield.ac.uk
+// Author: Luca Falasca
 //
 
-// Computes matrix-vector product. Matrix A is in row-major order
-// i.e. A[i, j] is stored in i * k + j element of the vector.
+// Computes matrix-matrix product.
 //
 
 #include <iostream>
@@ -11,11 +10,13 @@
 #include <cuda_runtime.h>  // For CUDA runtime API
 #include <helper_cuda.h>  // For checkCudaError macro
 #include <helper_timer.h>  // For CUDA SDK timers
+#include <cuda_profiler_api.h>
 
-//#define _DEBUG
+#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 256
+#define BD 32
+#define BD2 2
 
 const dim3 BLOCK_DIM(BD);
 
@@ -57,6 +58,71 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   }
 }
 
+__global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
+				const float* B, float* y) {
+  __shared__ float aux[BD][BD2];
+  int tc     = threadIdx.x;
+  int row    = blockIdx.x;
+  
+  if (row < m) {
+    
+    // Itero per ogni colonna della matrice B (n)
+    for(int i = 0; i < n/BD2; i++){
+      for(int j = 0; j < BD2; j++){
+        
+        int idxm = row*k+tc;
+        float t  = 0.0;
+        int q = 0;
+        aux[j][tc] = 0.0;
+        for (int ic= tc;  ic<k; ic += blockDim.x) {
+          int icx = i * n + ic + j * n;
+          t += A[idxm]*B[icx];
+          #ifdef _DEBUG
+            printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+            #endif
+          q++;
+          idxm +=  blockDim.x;
+        }
+        aux[j][tc] = t;
+      }
+      //print aux matrix
+      #ifdef _DEBUG
+      if(tc == 0 && row == 0){
+        for(int j = 0; j < BD2; j++){
+          for(int k = 0; k < BD; k++){
+            printf("row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
+          }
+        }
+      }
+      #endif
+    
+      __syncthreads();
+      for(int j = 0; j < BD2; j++){
+        for (int s=BD/2; s >=32; s >>=1){
+          if (tc<s)
+            aux[j][tc] += aux[j][tc+s]; 
+          __syncthreads();
+        }
+      }
+    
+      
+
+      for(int j = 0; j < BD2; j++){
+        if (tc<16) rowReduce(aux[j],tc);
+
+        if (tc == 0)
+          #ifdef _DEBUG
+          if(row == 0)
+          printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
+          #endif
+          y[i * BD2 + j + row * n] = aux[j][tc];
+      }
+    
+    }
+  }
+}
+
+
 __global__ void gpuMatrixVectorV2(int m, int k, int n, const float* A,
 				const float* B, float* y) {
   __shared__ float aux[BD];
@@ -68,38 +134,26 @@ __global__ void gpuMatrixVectorV2(int m, int k, int n, const float* A,
   
   if (row < m) {
     
-    // Starting address of indexing within matrix A
+    // Itero per ogni colonna della matrice B (n)
     for(int i = 0; i < n; i++){
       int idxm = row*k+tc;
       float t  = 0.0;
       int q = 0;
       aux[tc] = 0.0;
       int irs = 0;
-      /*if(i == 0){
-        size_shared_vec = abs(k / BD);
-        if(tc == 0){
-          size_shared_vec += k % BD;
-        }
-        for(int j = 0; j < size_shared_vec; j++){
-          //printf("%d", j + k / BD * tc);
-          row_shared[j] = A[idxm];
-          idxm += blockDim.x;
-        }
-      }*/
+      //ogni processo prende e moltiplica solo alcuni pezzi della matrice A per i corrispendenti della colonna i di B
       for (int ic= tc;  ic<k; ic += blockDim.x) {
         int icx = i * n + ic;
-        if(tc == 0){
-          irs = q;
-        }
-        else{
-          irs = q + size_shared_vec * tc + k % BD;
-        }
+        irs = q + size_shared_vec * tc + k % BD * (tc != 0);
         if(i == 0){
+          //Se sto facendo la riga per la prima colonna allora prendo i valori dalla memoria globale e li metto in shared
+          //dato che mi serviranno per le altre colonne
           int row_temp = A[idxm];
           row_shared[irs] = row_temp;
           t+= row_temp*B[icx];
         }
         else{
+          //Se sto facendo la riga per le altre colonne allora prendo i valori dalla memoria shared
           t += row_shared[q + size_shared_vec * tc]*B[icx];
           //t += A[idxm]*B[icx];
           #ifdef _DEBUG
@@ -242,14 +296,14 @@ int main(int argc, char** argv) {
   // Create the CUDA SDK timer.
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
-  /*
+  
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  */
+  
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -257,8 +311,10 @@ int main(int argc, char** argv) {
   // entries in the matrix and output vector
   const dim3 GRID_DIM(m,1);
   size_t smemSize = k * sizeof(float);
+  float gpuflops;
 
   //printf("size of shared memory: %d\n", smemSize);
+  /*
   timer->reset();
   timer->start();
   gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
@@ -271,7 +327,21 @@ int main(int argc, char** argv) {
   printf("size of shared memory: %d\n", smemSize);
   timer->reset();
   timer->start();
+  cudaProfilerStart();
   gpuMatrixVectorV2<<<GRID_DIM, BLOCK_DIM,  smemSize>>>(m, k, n, d_A, d_B, d_y);
+  cudaProfilerStop();
+  checkCudaErrors(cudaDeviceSynchronize());
+
+  timer->stop();
+  gpuflops=flopcnt/ timer->getTime();
+  std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  */
+  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float));
+  timer->reset();
+  timer->start();
+  cudaProfilerStart();
+  gpuMatrixVectorV3<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
