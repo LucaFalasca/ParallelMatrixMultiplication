@@ -12,9 +12,11 @@ debug:
 run:
 	mpirun -np ${np} --oversubscribe ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2}
 
+runt4x4:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_4x4.bin 4 4 data/matrix/bin/mat2_4x4.bin 4 4
 
 runt5x5:
-	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_7x5.bin 5 5 data/matrix/bin/mat2_5x7.bin 5 5
+	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_5x5.bin 5 5 data/matrix/bin/mat2_5x5.bin 5 5
 
 runt7x5:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_7x5.bin 7 5 data/matrix/bin/mat2_5x7.bin 5 7

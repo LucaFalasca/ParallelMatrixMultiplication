@@ -51,6 +51,16 @@ void write_matrix(float *mat, int rows, int cols, char *matpath_txt, char *matpa
         fprintf(f_txt, "\n");
     }
 
+    // Write rows number as first element of the binary file
+    if(fwrite(&rows, sizeof(int), 1, f_binary)==0){
+        exit(0);
+    }
+    
+    // Write cols number as second element of the binary file
+    if(fwrite(&cols, sizeof(int), 1, f_binary)==0){
+        exit(0);
+    }
+
     //Write binary file
     if(fwrite(mat, sizeof(float), rows*cols, f_binary)==0){
         printf("Error in writing to binary file %s\n", matpath_bin);
