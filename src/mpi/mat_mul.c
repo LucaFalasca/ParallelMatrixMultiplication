@@ -38,6 +38,7 @@ struct proc_info{
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 void row_block_cyclic_distribution_old(float *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank);
+void compute_block_info_old(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void set_proc_grid_info(struct proc_info* proc_info, int pg_col);
@@ -95,11 +96,11 @@ int main(int argc, char *argv[]){
 
     #ifdef DEBUG
         if(proc_info->rank==0){
-            printf("Number of processes: %d\n", proc_info->size);
-            printf("Process grid size: %d x %d\n", pg_row, pg_col);
-            printf("Block size: %d x %d\n", block_size, block_size);
-            printf("Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
-            printf("Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
+            printf("DEBUG -> Number of processes: %d\n", proc_info->size);
+            printf("DEBUG -> Process grid size: %d x %d\n", pg_row, pg_col);
+            printf("DEBUG -> Block size: %d x %d\n", block_size, block_size);
+            printf("DEBUG -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
+            printf("DEBUG -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
         }
     #endif
     
@@ -158,6 +159,7 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     compute_block_info(row, col, block_size, pg_row, pg_col, proc_info);
 
     printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_info->submatrix_row, proc_info->submat_info->submatrix_col);
+    
     recv_block = (float *) malloc(proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
     recv_block=memset(recv_block, 0, proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
 
@@ -171,7 +173,7 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     //Apertura collettiva del file
     #ifdef DEBUG
         if(proc_info->rank==0){
-            printf("Opening file %s\n", mat_path);
+            printf("DEBUG -> Opening file %s\n", mat_path);
         }
     #endif
     MPI_File_open(proc_info->comm, mat_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_file);
@@ -182,14 +184,17 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     //Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
     MPI_File_set_view(mat_file, 2*sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
-    //TODO La matrice è distribuita strana e ci sono 2 elementi che non si prende nessuno
+
     MPI_File_read_all(mat_file, recv_block, proc_info->submat_info->submatrix_row* proc_info->submat_info->submatrix_col, MPI_FLOAT, &status);
 
     MPI_File_close(&mat_file);
-    
+
+    #ifdef DEBUg
     for(int i=0; i<(proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col); i++){
-        printf("Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
+        printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
+    #endif
+
     //MPI_Type_free(&mat_darray);
     
 }
@@ -201,6 +206,68 @@ void set_proc_grid_info(struct proc_info* proc_info, int pg_col){
 }
 
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
+    int submatrix_elem_per_row=0;
+    int submatrix_elem_per_col=0;
+    struct proc_submatrix_info *submat_info = (struct proc_submatrix_info *) malloc(sizeof(struct proc_submatrix_info));
+    if(submat_info==NULL){
+        printf("Error in memory allocation for proc_submatrix_info in compute_block_info\n");
+        exit(1);
+    }
+
+    /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
+     avrà solo un blocco completo per processo presente in ogni riga, quindi P00 avrà il blocco base 0 ed il blocco completo ma non base 2, 
+     mentre P01 avrà il blocco base 1 e il blocco incompleto 3 che avrà una sola colonna
+    */
+    int num_block_per_row_per_proc=floor((float)col/(block_size*pg_col)); //Per ora sono solo blocchi base
+    int num_block_per_col_per_proc=floor((float)row/(block_size*pg_row));
+    int num_extra_block_per_row=((int)ceil((float)col/block_size))%pg_col;
+    int num_extra_block_per_col=((int)ceil((float)row/block_size))%pg_row;
+    //printf("%d\n", (int)ceil((float)row/block_size)%pg_row); // TODO BUG 7/2%2=4%2 fa 0 mhh
+
+    #ifdef DEBUG
+        if(proc_info->rank==0){
+            printf("DEBUG -> Number of base blocks per row per process: %d\n", num_block_per_row_per_proc);
+            printf("DEBUG -> Number of base blocks per col per process: %d\n", num_block_per_col_per_proc);
+            printf("DEBUG -> Number of extra blocks per row: %d\n", num_extra_block_per_row);
+            printf("DEBUG -> Number of extra blocks per col: %d\n", num_extra_block_per_col);
+        }
+    #endif
+
+    //Assign extra block to first processes cyclically
+    if(proc_info->pg_col_idx<num_extra_block_per_row){
+        num_block_per_row_per_proc++;
+    }    
+    if(proc_info->pg_row_idx<num_extra_block_per_col){
+        num_block_per_col_per_proc++;
+    }
+    
+
+    submatrix_elem_per_row=num_block_per_row_per_proc*block_size;
+    submatrix_elem_per_col=num_block_per_col_per_proc*block_size;
+
+    if(proc_info->pg_col_idx==num_extra_block_per_row-1)
+        submatrix_elem_per_row-=block_size-(col%block_size);
+    
+    if(proc_info->pg_row_idx==num_extra_block_per_col-1)
+        submatrix_elem_per_col-=block_size-(row%block_size); 
+
+    #ifdef DEBUG
+        if(proc_info->rank==1){
+            printf("DEBUG -> Number of blocks per row: %d\n", num_block_per_row_per_proc);
+            printf("DEBUG -> Number of blocks per col: %d\n", num_block_per_col_per_proc);
+            printf("DEBUG -> Submatrix row size: %d\n", submatrix_elem_per_row);
+            printf("DEBUG -> Submatrix col size: %d\n", submatrix_elem_per_col);
+        }
+    #endif
+
+    submat_info->num_blocks_per_row=num_block_per_row_per_proc;  
+    submat_info->num_blocks_per_col=num_block_per_col_per_proc;
+    submat_info->submatrix_row=submatrix_elem_per_col;
+    submat_info->submatrix_col=submatrix_elem_per_row;
+    proc_info->submat_info=submat_info;
+}
+
+void compute_block_info_old(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     int num_blocks_row=ceil((float) col/block_size); //Number of blocks for row
     int num_blocks_col=ceil((float) row/block_size); //Number of blocks for col
     int proc_min_blocks_row, proc_min_blocks_col, proc_extra_blocks_row=0, proc_extra_blocks_col=0;
@@ -220,11 +287,11 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
 
     //Add extra row blocks to process with row index 0
     if(((num_blocks_row%pg_col) !=0)&&(proc_info->pg_row_idx==0))
-        proc_extra_blocks_row+=2;
+        proc_extra_blocks_row++;
 
     //Add extra col blocks to process with col index 0
     if(((num_blocks_col%pg_row) !=0)&&(proc_info->pg_col_idx==0)) 
-        proc_extra_blocks_col+=2;
+        proc_extra_blocks_col++;
 
     submat_info->num_blocks_per_row=proc_min_blocks_row+proc_extra_blocks_row;
     submat_info->num_blocks_per_col=proc_min_blocks_col+proc_extra_blocks_col;
@@ -243,77 +310,5 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     
     proc_info->submat_info=submat_info;
     //printf("Process %d in grid position (%d, %d) has %d blocks\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->num_blocks);
-}
-
-//This function is used to distribute block of rows of a matrix over the process cyclically 
-void row_block_cyclic_distribution_old(float *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank){
-    //MPI_TYPE_INDEXED(count, array_of_blocklengths, array_of_displacements, oldtype, newtype) Potrebbe risolvere il problema di dividere l'array in blocchi di size diversa
-    int num_blocks = row/block_size;
-    int rem = row%block_size;
-    int pid_norm=rank%npc;
-    int *block_lenghts;
-    int *block_displacements;
-    float *recv_buff;
-    int max_recv_cnt=((2*block_size)-1)*col;
-    MPI_Datatype mat_blocks, cyclic;
-    MPI_Aint extent, lb;
-
-    recv_buff = (float *) malloc(max_recv_cnt*sizeof(float));
-    if(recv_buff==NULL){
-        printf("Error in memory allocation for recv_buff in row_block_cyclic_distribution\n");
-        exit(1);
-    }
-
-    if(rem!=0) num_blocks++;
-
-    block_lenghts = (int *) malloc(num_blocks*sizeof(int));
-    if(block_lenghts==NULL){
-        printf("Error in memory allocation for block_lenghts in row_block_cyclic_distribution\n");
-        exit(1);
-    }
-    block_displacements = (int *) malloc(num_blocks*sizeof(int));
-    if(block_displacements==NULL){
-        printf("Error in memory allocation for block_displacements in row_block_cyclic_distribution\n");
-        exit(1);
-    }
-    for(int i=0; i<num_blocks; i++){
-        if((rem!=0)&&(i==num_blocks-1)) block_lenghts[i] = rem*col;
-        else block_lenghts[i] = block_size*col;
-        block_displacements[i] = i*block_size*col;
-    }
-
-    MPI_Barrier(comm);
-    if(rank==0){
-        printf("There are %d blocks\n", num_blocks);   
-        printf("Block lenghts\n");
-        for(int i=0; i<num_blocks; i++){
-            printf("%d \n", block_lenghts[i]);
-        }
-        printf("Block displacements\n");
-        for(int i=0; i<num_blocks; i++){
-            printf("%d \n", block_displacements[i]);
-        }
-        printf("So blocks are:\n");
-        for(int i=0; i<num_blocks; i++){
-            printf("Block %d\n", i);
-            for(int j=0; j<block_lenghts[i]; j++){
-                printf("%19.2lf", mat[block_displacements[i]+j]);
-            }
-            printf("\n");
-        }
-    }
-
-    
-    MPI_Type_indexed(num_blocks, block_lenghts, block_displacements, MPI_FLOAT, &mat_blocks);
-    MPI_Type_get_extent(MPI_FLOAT, &lb, &extent);
-    //MPI_Type_create_resized(mat_blocks, 0, extent, &cyclic);
-    //MPI_Type_commit(&cyclic);
-    MPI_Scatter(mat, 1, mat_blocks, recv_buff, max_recv_cnt, MPI_FLOAT, 0, comm);
-
-    MPI_Barrier(comm);
-    printf("Rank %d received\n", rank);
-    for(int i=0; i<max_recv_cnt; i++){
-        printf("%19.2lf", recv_buff[i]);
-    }
 }
 
