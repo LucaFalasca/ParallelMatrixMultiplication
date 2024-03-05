@@ -206,8 +206,11 @@ void set_proc_grid_info(struct proc_info* proc_info, int pg_col){
 }
 
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
-    int submatrix_elem_per_row=0;
-    int submatrix_elem_per_col=0;
+    int submatrix_elem_per_row=0, submatrix_elem_per_col=0;
+    int num_block_per_row_per_proc=0, num_block_per_col_per_proc=0;
+    int num_extra_block_per_row=0, num_extra_block_per_col=0;
+    int temp, rem_block_per_col, rem_block_per_row;
+
     struct proc_submatrix_info *submat_info = (struct proc_submatrix_info *) malloc(sizeof(struct proc_submatrix_info));
     if(submat_info==NULL){
         printf("Error in memory allocation for proc_submatrix_info in compute_block_info\n");
@@ -218,10 +221,29 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
      avrà solo un blocco completo per processo presente in ogni riga, quindi P00 avrà il blocco base 0 ed il blocco completo ma non base 2, 
      mentre P01 avrà il blocco base 1 e il blocco incompleto 3 che avrà una sola colonna
     */
-    int num_block_per_row_per_proc=floor((float)col/(block_size*pg_col)); //Per ora sono solo blocchi base
-    int num_block_per_col_per_proc=floor((float)row/(block_size*pg_row));
-    int num_extra_block_per_row=((int)ceil((float)col/block_size))%pg_col;
-    int num_extra_block_per_col=((int)ceil((float)row/block_size))%pg_row;
+    num_block_per_row_per_proc=col/(block_size*pg_col); //Per ora sono solo blocchi base
+    num_block_per_col_per_proc=row/(block_size*pg_row);
+
+    //Calcolo dei blocchi extra per riga
+    rem_block_per_row=col%block_size;
+    temp=((int)ceil((float)col/block_size))%pg_col;
+    
+    if((rem_block_per_row!=0)&&(temp!=0))
+        num_extra_block_per_row=temp;
+    else
+        num_extra_block_per_row=pg_col;
+
+    //Calcolo dei blocchi extra per colonna
+    rem_block_per_col=row%block_size;
+    temp=((int)ceil((float)row/block_size))%pg_row;
+
+    if(rem_block_per_col!=0&&(temp!=0))
+        num_extra_block_per_col=temp;
+    else
+        num_extra_block_per_col=pg_row;
+    
+    //num_extra_block_per_row=((int)ceil((float)col/block_size))%pg_col;
+    //num_extra_block_per_col=((int)ceil((float)row/block_size))%pg_row;
     //printf("%d\n", (int)ceil((float)row/block_size)%pg_row); // TODO BUG 7/2%2=4%2 fa 0 mhh
 
     #ifdef DEBUG
@@ -246,10 +268,10 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     submatrix_elem_per_col=num_block_per_col_per_proc*block_size;
 
     if(proc_info->pg_col_idx==num_extra_block_per_row-1)
-        submatrix_elem_per_row-=block_size-(col%block_size);
+        submatrix_elem_per_row-=block_size-(rem_block_per_row);
     
     if(proc_info->pg_row_idx==num_extra_block_per_col-1)
-        submatrix_elem_per_col-=block_size-(row%block_size); 
+        submatrix_elem_per_col-=block_size-(rem_block_per_col); 
 
     #ifdef DEBUG
         if(proc_info->rank==1){
