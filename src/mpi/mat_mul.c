@@ -32,13 +32,13 @@ struct proc_info{
     MPI_Comm comm; //MPI communicator
     int pg_row_idx; //Process row index in the process grid 
     int pg_col_idx; //Process column index in the process grid
-    struct proc_submatrix_info *submat_info; //Pointer to the submatrix info
+    struct proc_submatrix_info *submat_A_info; //Pointer to the submatrix info
+    struct proc_submatrix_info *submat_B_info; //Pointer to the submatrix info
+    struct proc_submatrix_info *submat_res_info; //Pointer to the submatrix info
 } proc_info;
 
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
-void row_block_cyclic_distribution_old(float *mat, int row, int col, int block_size, int npc, MPI_Comm comm, int rank);
-void compute_block_info_old(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 void set_proc_grid_info(struct proc_info* proc_info, int pg_col);
@@ -144,7 +144,7 @@ bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int 
     return true;
 }
 
-//TODO
+//Distribuzione della matrice in blocchi con metodo block cyclic
 void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     MPI_Status status;
     MPI_Datatype mat_darray;
@@ -158,10 +158,10 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     set_proc_grid_info(proc_info, pg_col);
     compute_block_info(row, col, block_size, pg_row, pg_col, proc_info);
 
-    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_info->submatrix_row, proc_info->submat_info->submatrix_col);
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, proc_info->submat_A_info->submatrix_row, proc_info->submat_A_info->submatrix_col);
     
-    recv_block = (float *) malloc(proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
-    recv_block=memset(recv_block, 0, proc_info->submat_info->submatrix_row*proc_info->submat_info->submatrix_col*sizeof(float));
+    recv_block = (float *) malloc(proc_info->submat_A_info->submatrix_row*proc_info->submat_A_info->submatrix_col*sizeof(float));
+    recv_block=memset(recv_block, 0, proc_info->submat_A_info->submatrix_row*proc_info->submat_A_info->submatrix_col*sizeof(float));
 
     /*
     Creazione del tipo di dato per la matrice distribuita, ogni processo vedrà solo la sua porzione di matrice,
@@ -185,18 +185,16 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     //Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
     MPI_File_set_view(mat_file, 2*sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
 
-    MPI_File_read_all(mat_file, recv_block, proc_info->submat_info->submatrix_row* proc_info->submat_info->submatrix_col, MPI_FLOAT, &status);
+    MPI_File_read_all(mat_file, recv_block, proc_info->submat_A_info->submatrix_row* proc_info->submat_A_info->submatrix_col, MPI_FLOAT, &status);
 
     MPI_File_close(&mat_file);
 
-    #ifdef DEBUg
-    for(int i=0; i<(proc_info->submat_info->submatrix_row)*(proc_info->submat_info->submatrix_col); i++){
+    #ifdef DEBUG
+    for(int i=0; i<(proc_info->submat_A_info->submatrix_row)*(proc_info->submat_A_info->submatrix_col); i++){
         printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
     #endif
-
-    //MPI_Type_free(&mat_darray);
-    
+    MPI_Type_free(&mat_darray); 
 }
 
 //Compute the process coordinates in the processg grid
@@ -205,6 +203,7 @@ void set_proc_grid_info(struct proc_info* proc_info, int pg_col){
     proc_info->pg_col_idx = proc_info->rank%pg_col;
 }
 
+//TODO con griglia processi 3x3 e 3x2 sbaglia, verificare nche con taglia size griglia diversa da size blocchi, con 16x8 blocchi 2x2 e processi 4x4 funziona e con 16x8 blocchi 3x3 e processi 3x3 funziona
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     int submatrix_elem_per_row=0, submatrix_elem_per_col=0;
     int num_block_per_row_per_proc=0, num_block_per_col_per_proc=0;
@@ -288,51 +287,6 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     submat_info->num_blocks_per_col=num_block_per_col_per_proc;
     submat_info->submatrix_row=submatrix_elem_per_col;
     submat_info->submatrix_col=submatrix_elem_per_row;
-    proc_info->submat_info=submat_info;
-}
-
-void compute_block_info_old(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
-    int num_blocks_row=ceil((float) col/block_size); //Number of blocks for row
-    int num_blocks_col=ceil((float) row/block_size); //Number of blocks for col
-    int proc_min_blocks_row, proc_min_blocks_col, proc_extra_blocks_row=0, proc_extra_blocks_col=0;
-    int row_rem=row%block_size;
-    int col_rem=col%block_size;
-    struct proc_submatrix_info *submat_info = (struct proc_submatrix_info *) malloc(sizeof(struct proc_submatrix_info));
-    if(submat_info==NULL){
-        printf("Error in memory allocation for proc_submatrix_info\n");
-        exit(1);
-    }
-
-    /*Ora ogni processo si becca almeno NBR/pg_col blocchi per riga e NBC/pg_row blocchi per colonna però se NBR%pg_col!=0 
-    tutti i processi con indice di colonna 0 si prendono +1 blocco a riga e se NBC%pg_row!=0 tutta i processi con indice di riga 0 
-    si prendono +1 blocco a colonna*/
-    proc_min_blocks_row=num_blocks_row/pg_col; 
-    proc_min_blocks_col=num_blocks_col/pg_row;
-
-    //Add extra row blocks to process with row index 0
-    if(((num_blocks_row%pg_col) !=0)&&(proc_info->pg_row_idx==0))
-        proc_extra_blocks_row++;
-
-    //Add extra col blocks to process with col index 0
-    if(((num_blocks_col%pg_row) !=0)&&(proc_info->pg_col_idx==0)) 
-        proc_extra_blocks_col++;
-
-    submat_info->num_blocks_per_row=proc_min_blocks_row+proc_extra_blocks_row;
-    submat_info->num_blocks_per_col=proc_min_blocks_col+proc_extra_blocks_col;
-
-    /*TODO ASSEGNARE LA TAGLIA PRECISA DEI BLOCCHI, in toeria se faccio proc_extra_blocks_row -1 * block size prendo tutti quei blocchi
-      che come row size hanno 2 e poi la col size dipende dal R%block_size, mentre l'ultimo se cè avra size R%block_size*C%block_size
-      pero chi se lo prende il blocco fatto così? In generale solo un processo avrà quello brutto, una possibilità è una variabile
-      condivisa che mantiene il max extra block corrente tra tutti i processi cosi poi ognuno la confronta e capisce se è lui che se lo becca
-      un'altra possibilità è invece fare dei ragionamenti sulla size della matrice, la size dei blocchi e la size della grid
-      cosi che ogni processo sappia ricostruire la size della matrice originale e capire quindi se l'ultimo blocco extra deve
-      essere più piccolo o meno
-    */
-    submat_info->submatrix_row=(proc_min_blocks_row*block_size)+(proc_extra_blocks_row*block_size);
-    submat_info->submatrix_col=(proc_min_blocks_col*block_size)+(proc_extra_blocks_col*block_size);
-
-    
-    proc_info->submat_info=submat_info;
-    //printf("Process %d in grid position (%d, %d) has %d blocks\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->num_blocks);
+    proc_info->submat_A_info=submat_info;
 }
 

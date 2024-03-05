@@ -21,5 +21,23 @@ runt5x5:
 runt7x5:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_7x5.bin 7 5 data/matrix/bin/mat2_5x7.bin 5 7
 
+runt5x7:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_7x5.bin 5 7 data/matrix/bin/mat2_5x7.bin 7 5
+
 runt16x8:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
+
+runt_p3x3_16x8:
+	mpirun -np 9 --oversubscribe ./a.out 3 3 2 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
+
+runt_p3x2_16x8:
+	mpirun -np 6 --oversubscribe ./a.out 3 2 2 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
+
+runt_b3_16x8:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 3 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
+
+runt_p4x4_16x8:
+	mpirun -np 16 --oversubscribe ./a.out 4 4 2 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
+
+runt_b3_p3x3_16x8:
+	mpirun -np 9 --oversubscribe ./a.out 3 3 3 data/matrix/bin/mat1_7x5.bin 16 8 data/matrix/bin/mat2_5x7.bin 8 16
