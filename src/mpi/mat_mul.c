@@ -224,23 +224,25 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     num_block_per_row_per_proc=col/(block_size*pg_col); //Per ora sono solo blocchi base
     num_block_per_col_per_proc=row/(block_size*pg_row);
 
-    //Calcolo dei blocchi extra per riga
+    //Calcolo dei blocchi extra per riga TODO REGRESSION BUG
     rem_block_per_row=col%block_size;
     temp=((int)ceil((float)col/block_size))%pg_col;
     
-    if((rem_block_per_row!=0)&&(temp!=0))
-        num_extra_block_per_row=temp;
-    else
+    if((rem_block_per_row!=0)&&(temp==0))
         num_extra_block_per_row=pg_col;
+        
+    else
+        num_extra_block_per_row=temp;
 
     //Calcolo dei blocchi extra per colonna
     rem_block_per_col=row%block_size;
     temp=((int)ceil((float)row/block_size))%pg_row;
 
-    if(rem_block_per_col!=0&&(temp!=0))
-        num_extra_block_per_col=temp;
-    else
+    if(rem_block_per_col!=0&&(temp==0))
         num_extra_block_per_col=pg_row;
+    else
+        num_extra_block_per_col=temp;
+        
     
     //num_extra_block_per_row=((int)ceil((float)col/block_size))%pg_col;
     //num_extra_block_per_col=((int)ceil((float)row/block_size))%pg_row;
