@@ -224,7 +224,7 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     num_block_per_row_per_proc=col/(block_size*pg_col); //Per ora sono solo blocchi base
     num_block_per_col_per_proc=row/(block_size*pg_row);
 
-    //Calcolo dei blocchi extra per riga TODO REGRESSION BUG
+    //Calcolo dei blocchi extra per riga
     rem_block_per_row=col%block_size;
     temp=((int)ceil((float)col/block_size))%pg_col;
     
