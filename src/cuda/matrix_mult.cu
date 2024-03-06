@@ -13,10 +13,10 @@
 #include <cuda_profiler_api.h>
 #include <math.h>
 
-#define _DEBUG
+//#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 2
+#define BD 256
 #define BD2 2
 
 const dim3 BLOCK_DIM(BD);
@@ -101,7 +101,7 @@ __global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
         int q = 0;
         aux[j][tc] = 0.0;
         for (int ic= tc;  ic<k; ic += blockDim.x) {
-          int icx = i * n + ic + j * n;
+          int icx = i * k + ic + j * k;
           t += A[idxm]*B[icx];
           #ifdef _DEBUG
           printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
@@ -323,16 +323,17 @@ int main(int argc, char** argv) {
   float flopcnt=2.e-6*m*k*n;
   
   // Create the CUDA SDK timer.
+  
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
-  
+  /*
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  
+  */
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -343,14 +344,14 @@ int main(int argc, char** argv) {
   float gpuflops;
 
   //printf("size of shared memory: %d\n", smemSize);
-  /*
+  
   timer->reset();
   timer->start();
   gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
-  float gpuflops=flopcnt/ timer->getTime();
+  gpuflops=flopcnt/ timer->getTime();
   std::cout << "  GPU time global memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   printf("size of shared memory: %d\n", smemSize);
@@ -364,7 +365,7 @@ int main(int argc, char** argv) {
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
   std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
-  */
+  
   printf("size of shared memory: %d\n", BD * BD2 * sizeof(float));
   timer->reset();
   timer->start();
