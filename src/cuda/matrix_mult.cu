@@ -29,7 +29,7 @@ void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float*
       t = 0.0;
       for (int col = 0; col < k; ++col) {
         int idx = row * k + col;
-        int icx = i * n + col;
+        int icx = i * k + col;
         t += A[idx] * x[icx];
         #ifdef _DEBUG
         printf("CPU - A[%d]: %f --- B[%d]: %f\n", idx, A[idx], icx, x[icx]); 
