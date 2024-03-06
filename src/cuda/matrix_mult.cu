@@ -11,26 +11,28 @@
 #include <helper_cuda.h>  // For checkCudaError macro
 #include <helper_timer.h>  // For CUDA SDK timers
 #include <cuda_profiler_api.h>
+#include <math.h>
 
 #define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 32
+#define BD 2
 #define BD2 2
 
 const dim3 BLOCK_DIM(BD);
 
 // Simple CPU implementation of matrix addition.
 void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float* y) {
+  float t=0.0;
   for (int row = 0; row < m; ++row) {
-    float t=0.0;
     for(int i = 0; i < n; i++){
+      t = 0.0;
       for (int col = 0; col < k; ++col) {
         int idx = row * k + col;
         int icx = i * n + col;
         t += A[idx] * x[icx];
         #ifdef _DEBUG
-        printf("CPU - A[%d]: %f --- x[%d]: %f\n", idx, A[idx], icx, x[icx]); 
+        printf("CPU - A[%d]: %f --- B[%d]: %f\n", idx, A[idx], icx, x[icx]); 
         #endif
       }
       y[i + row * n] = t;
@@ -41,6 +43,16 @@ void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float*
 // GPU implementation of matrix_vector product using a block of threads for
 // each row. 
 __device__ void rowReduce(volatile float *sdata, int tid) {
+  #ifdef _DEBUG
+  if(blockIdx.x == 0){
+    printf("sdata[%d]: %f\n", tid, sdata[tid]);
+    printf("sdata[%d + 16]: %f\n", tid, sdata[tid + 16]);
+    printf("sdata[%d + 8]: %f\n", tid, sdata[tid + 8]);
+    printf("sdata[%d + 4]: %f\n", tid, sdata[tid + 4]);
+    printf("sdata[%d + 2]: %f\n", tid, sdata[tid + 2]);
+    printf("sdata[%d + 1]: %f\n", tid, sdata[tid + 1]);
+  }
+  #endif
   sdata[tid] += sdata[tid + 16];
   sdata[tid] += sdata[tid +  8];
   sdata[tid] += sdata[tid +  4];
@@ -49,6 +61,18 @@ __device__ void rowReduce(volatile float *sdata, int tid) {
 }
 
 __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
+  #ifdef _DEBUG
+  
+  if(blockIdx.x == 0){
+    printf("row->%d sdata[%d]: %f\n", blockIdx.x, tid, sdata[tid]);
+    printf("row->%d sdata[%d + 16]: %f\n", blockIdx.x, tid, sdata[tid + 16]);
+    printf("row->%d sdata[%d + 8]: %f\n", blockIdx.x, tid, sdata[tid + 8]);
+    printf("row->%d sdata[%d + 4]: %f\n", blockIdx.x, tid, sdata[tid + 4]);
+    printf("row->%d sdata[%d + 2]: %f\n", blockIdx.x, tid, sdata[tid + 2]);
+    printf("row->%d sdata[%d + 1]: %f\n", blockIdx.x, tid, sdata[tid + 1]);
+  }
+  
+  #endif
   switch(s){
   case 16:  sdata[tid] += sdata[tid + 16];
   case  8:  sdata[tid] += sdata[tid +  8];
@@ -63,13 +87,15 @@ __global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
   __shared__ float aux[BD][BD2];
   int tc     = threadIdx.x;
   int row    = blockIdx.x;
+  int s = min(16,BD/2);
+  int size = BD2;
   
   if (row < m) {
     
     // Itero per ogni colonna della matrice B (n)
-    for(int i = 0; i < n/BD2; i++){
-      for(int j = 0; j < BD2; j++){
-        
+    for(int i = 0; i < n; i+= BD2){
+      if(i + BD2 > n) size = n % BD2;
+      for(int j = 0; j < size; j++){
         int idxm = row*k+tc;
         float t  = 0.0;
         int q = 0;
@@ -78,44 +104,47 @@ __global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
           int icx = i * n + ic + j * n;
           t += A[idxm]*B[icx];
           #ifdef _DEBUG
-            printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
-            #endif
+          printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
           q++;
           idxm +=  blockDim.x;
         }
         aux[j][tc] = t;
       }
+      
+      
+    
+      __syncthreads();
       //print aux matrix
       #ifdef _DEBUG
-      if(tc == 0 && row == 0){
-        for(int j = 0; j < BD2; j++){
+      if(tc == 0){
+        for(int j = 0; j < size; j++){
           for(int k = 0; k < BD; k++){
-            printf("row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
+            printf("[BEFORE]row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
           }
         }
       }
       #endif
-    
-      __syncthreads();
-      for(int j = 0; j < BD2; j++){
-        for (int s=BD/2; s >=32; s >>=1){
-          if (tc<s)
-            aux[j][tc] += aux[j][tc+s]; 
+      for(int j = 0; j < size; j++){
+        for (int s2=BD/2; s2 >=32; s2 >>=1){
+          if (tc<s2)
+            aux[j][tc] += aux[j][tc+s2]; 
           __syncthreads();
         }
       }
-    
-      
 
-      for(int j = 0; j < BD2; j++){
-        if (tc<16) rowReduce(aux[j],tc);
+      for(int j = 0; j < size; j++){
+        if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
 
-        if (tc == 0)
+        if (tc == 0){
           #ifdef _DEBUG
-          if(row == 0)
+          if(1)
           printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
+          printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
           #endif
-          y[i * BD2 + j + row * n] = aux[j][tc];
+
+          y[i + j + row * n] = aux[j][tc];
+        }
       }
     
     }
@@ -258,7 +287,7 @@ int main(int argc, char** argv) {
     h_y[row] = 0.0;
   }
   #ifdef _DEBUG 
-  std::cout << "\nMatrix x:" << std::endl;
+  std::cout << "\nMatrix B:" << std::endl;
   #endif
   for (int col = 0; col < k; ++col) {
     for(int row = 0; row < n; ++row){
@@ -362,6 +391,19 @@ int main(int argc, char** argv) {
     for (int col = 0; col < n; ++col) {
       int idx = row * n + col;
       std::cout << "|" << h_y_d[idx] << "";
+    }
+    std::cout << "|" << std::endl;
+  }
+  #endif
+
+  #ifdef _DEBUG
+  std::cout << "Matrix-vector product: CPU version " << std::endl;
+  std::cout << "Test case: " << m  << " x " << n << std::endl;
+  std::cout << "Matrix y_d: " << std::endl;
+  for (int row = 0; row < m; ++row) {
+    for (int col = 0; col < n; ++col) {
+      int idx = row * n + col;
+      std::cout << "|" << h_y[idx] << "";
     }
     std::cout << "|" << std::endl;
   }
