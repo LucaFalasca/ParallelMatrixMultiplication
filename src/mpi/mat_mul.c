@@ -203,10 +203,7 @@ void set_proc_grid_info(struct proc_info* proc_info, int pg_col){
     proc_info->pg_col_idx = proc_info->rank%pg_col;
 }
 
-/*
-TODO sbaglia con p3x3 b2x2 16x8, p3x2  2x2 16x8, p3x3 b2x2 8x8, p3x3 b2x2 8x6, p3x3 b3x3 8x6 alcuni elementi griglia non devono prendere niente,
-
-*/
+//Calcolo delle informazioni sui blocchi per ogni processo
 void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     int submatrix_elem_per_row=0, submatrix_elem_per_col=0;
     int num_block_per_row_per_proc=0, num_block_per_col_per_proc=0;
@@ -243,11 +240,6 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
         num_extra_block_per_col=pg_row;
     else
         num_extra_block_per_col=temp;
-        
-    
-    //num_extra_block_per_row=((int)ceil((float)col/block_size))%pg_col;
-    //num_extra_block_per_col=((int)ceil((float)row/block_size))%pg_row;
-    //printf("%d\n", (int)ceil((float)row/block_size)%pg_row); // TODO BUG 7/2%2=4%2 fa 0 mhh
 
     #ifdef DEBUG
         if(proc_info->rank==0){
