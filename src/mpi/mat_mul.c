@@ -189,7 +189,7 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     MPI_File_close(&mat_file);
 
-    #ifdef DEBUG
+    #ifdef DEBUg
     for(int i=0; i<(proc_info->submat_A_info->submatrix_row)*(proc_info->submat_A_info->submatrix_col); i++){
         printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
@@ -232,7 +232,6 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     
     if((rem_block_per_row!=0)&&(temp==0))
         num_extra_block_per_row=pg_col;
-        
     else
         num_extra_block_per_row=temp;
 
@@ -271,18 +270,24 @@ void compute_block_info(int row, int col, int block_size, int pg_row, int pg_col
     submatrix_elem_per_row=num_block_per_row_per_proc*block_size;
     submatrix_elem_per_col=num_block_per_col_per_proc*block_size;
 
-    if(proc_info->pg_col_idx==num_extra_block_per_row-1)
+    if((proc_info->pg_col_idx==num_extra_block_per_row-1)&&(rem_block_per_row!=0)){
+        if(proc_info->rank==0)
+            printf("DEBUG -> Proc %d Rem blocks per row: %d\n", proc_info->rank, rem_block_per_row);
         submatrix_elem_per_row-=block_size-(rem_block_per_row);
+    }
     
-    if(proc_info->pg_row_idx==num_extra_block_per_col-1)
-        submatrix_elem_per_col-=block_size-(rem_block_per_col); 
+    if((proc_info->pg_row_idx==num_extra_block_per_col-1)&&(rem_block_per_col!=0)){
+        if(proc_info->rank==0)
+            printf("DEBUG -> Proc %d Rem blocks per col: %d\n", proc_info->rank, rem_block_per_col);
+        submatrix_elem_per_col-=block_size-(rem_block_per_col);
+    }
 
     #ifdef DEBUG
-        if(proc_info->rank==1){
-            printf("DEBUG -> Number of blocks per row: %d\n", num_block_per_row_per_proc);
-            printf("DEBUG -> Number of blocks per col: %d\n", num_block_per_col_per_proc);
-            printf("DEBUG -> Submatrix row size: %d\n", submatrix_elem_per_row);
-            printf("DEBUG -> Submatrix col size: %d\n", submatrix_elem_per_col);
+        if(proc_info->rank==0){
+            printf("DEBUG -> Proc 00 Number of blocks per row: %d\n", num_block_per_row_per_proc);
+            printf("DEBUG -> Proc 00 Number of blocks per col: %d\n", num_block_per_col_per_proc);
+            printf("DEBUG -> Proc 00 Submatrix row size: %d\n", submatrix_elem_per_row);
+            printf("DEBUG -> Proc 00 Submatrix col size: %d\n", submatrix_elem_per_col);
         }
     #endif
 

@@ -15,6 +15,15 @@ run:
 runt4x4:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_4x4.bin 4 4 data/matrix/bin/mat2_4x4.bin 4 4
 
+runt_p3x3_4x4:
+	mpirun -np 9 --oversubscribe ./a.out 3 3 2 data/matrix/bin/mat1_4x4.bin 4 4 data/matrix/bin/mat2_4x4.bin 4 4
+
+runt_b3_4x4:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 3 data/matrix/bin/mat1_4x4.bin 4 4 data/matrix/bin/mat2_4x4.bin 4 4
+
+runt_b4_4x4:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 4 data/matrix/bin/mat1_4x4.bin 4 4 data/matrix/bin/mat2_4x4.bin 4 4
+
 runt5x5:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_5x5.bin 5 5 data/matrix/bin/mat2_5x5.bin 5 5
 
@@ -78,7 +87,7 @@ runt_b3_p3x3_8x6:
 
 runt_b3_8x6:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 3 data/matrix/bin/mat1_8x6.bin 8 6 data/matrix/bin/mat2_6x8.bin 6 8
-DAQUI
+
 runt_8x7:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_8x7.bin 8 7 data/matrix/bin/mat2_7x8.bin 7 8
 
