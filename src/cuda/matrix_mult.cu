@@ -13,10 +13,10 @@
 #include <cuda_profiler_api.h>
 #include <math.h>
 
-//#define _DEBUG
+#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 256
+#define BD 2
 #define BD2 2
 
 const dim3 BLOCK_DIM(BD);
@@ -79,6 +79,73 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   case  4:  sdata[tid] += sdata[tid +  4];
   case  2:  sdata[tid] += sdata[tid +  2];
   case  1:  sdata[tid] += sdata[tid +  1];
+  }
+}
+
+__global__ void gpuMatrixVectorV4(int m, int k, int n, const float* A,
+				const float* B, float* y) {
+  __shared__ float aux[BD][BD2];
+  int tc     = threadIdx.x;
+  int row    = blockIdx.x;
+  int s = min(16,BD/2);
+  int size = BD2;
+  __shared__ float a_shared[BD];
+  
+  if (row < m) {
+    
+    // Itero per ogni colonna della matrice B (n)
+    for(int i = 0; i < n; i+= BD2){
+      if(i + BD2 > n) size = n % BD2;
+      for(int j = 0; j < size; j++) aux[j][tc] = 0.0;
+      int idxm = row*k+tc;
+      for (int ic= tc;  ic<k; ic += blockDim.x) {
+        a_shared[tc] = A[idxm];
+        for(int j = 0; j < size; j++){
+          int icx = i * k + ic + j * k;
+          aux[j][tc] += a_shared[tc]*B[icx];
+          #ifdef _DEBUG
+          printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
+        }
+        idxm +=  blockDim.x;
+      }
+      
+      
+    
+      __syncthreads();
+      //print aux matrix
+      #ifdef _DEBUG
+      if(tc == 0){
+        for(int j = 0; j < size; j++){
+          for(int k = 0; k < BD; k++){
+            printf("[BEFORE]row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
+          }
+        }
+      }
+      #endif
+      for(int j = 0; j < size; j++){
+        for (int s2=BD/2; s2 >=32; s2 >>=1){
+          if (tc<s2)
+            aux[j][tc] += aux[j][tc+s2]; 
+          __syncthreads();
+        }
+      }
+
+      for(int j = 0; j < size; j++){
+        if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
+
+        if (tc == 0){
+          #ifdef _DEBUG
+          if(1)
+          printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
+          printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
+          #endif
+
+          y[i + j + row * n] = aux[j][tc];
+        }
+      }
+    
+    }
   }
 }
 
@@ -326,14 +393,15 @@ int main(int argc, char** argv) {
   
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
-  /*
+  
+  
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  */
+  
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -344,7 +412,7 @@ int main(int argc, char** argv) {
   float gpuflops;
 
   //printf("size of shared memory: %d\n", smemSize);
-  
+  /*
   timer->reset();
   timer->start();
   gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
@@ -365,12 +433,12 @@ int main(int argc, char** argv) {
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
   std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
-  
+  */
   printf("size of shared memory: %d\n", BD * BD2 * sizeof(float));
   timer->reset();
   timer->start();
   cudaProfilerStart();
-  gpuMatrixVectorV3<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixVectorV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
