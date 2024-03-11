@@ -13,11 +13,11 @@
 #include <cuda_profiler_api.h>
 #include <math.h>
 
-#define _DEBUG
+//#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 2
-#define BD2 2
+#define BD 256
+#define BD2 24
 
 const dim3 BLOCK_DIM(BD);
 
@@ -84,7 +84,7 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
 
 __global__ void gpuMatrixVectorV4(int m, int k, int n, const float* A,
 				const float* B, float* y) {
-  __shared__ float aux[BD][BD2];
+  __shared__ float aux[BD2][BD];
   int tc     = threadIdx.x;
   int row    = blockIdx.x;
   int s = min(16,BD/2);
@@ -394,14 +394,14 @@ int main(int argc, char** argv) {
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
   
-  
+  /*
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  
+  */
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
