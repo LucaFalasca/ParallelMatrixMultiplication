@@ -284,7 +284,8 @@ struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_s
     submat_info->num_blocks_per_col=num_block_per_col_per_proc;
     submat_info->submatrix_row=submatrix_elem_per_col;
     submat_info->submatrix_col=submatrix_elem_per_row;
-    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
+
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of A\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
     return submat_info;
 }
 
@@ -301,13 +302,23 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
         exit(1);
     }
 
+    struct proc_info *temp_proc_info = (struct proc_info *) malloc(sizeof(struct proc_info));
+    if(temp_proc_info==NULL){
+        printf("Error in memory allocation for temp_proc_info in compute_block_info\n");
+        exit(1);
+    }
+    temp_proc_info->rank=(proc_info->rank%pg_col);
+    set_proc_grid_info(temp_proc_info, pg_col);
+    #ifdef DEBUG
+        printf("Rank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, temp_proc_info->rank, temp_proc_info->pg_row_idx, temp_proc_info->pg_col_idx);
+    #endif
     /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
      avrà solo un blocco completo per processo presente in ogni riga, quindi P00 avrà il blocco base 0 ed il blocco completo ma non base 2, 
      mentre P01 avrà il blocco base 1 e il blocco incompleto 3 che avrà una sola colonna
     */
     num_block_per_col_per_proc=row/(row_block_size*pg_row);//Per ora sono solo blocchi base
 
-    //Calcolo dei blocchi extra per colonna
+    //Calcolo dei blocchi extra per colonna, sulle righe non ce ne sono perche le prendo intere
     rem_block_per_col=row%row_block_size;
     temp=((int)ceil((float)row/row_block_size))%pg_row;
 
@@ -318,20 +329,20 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
 
     #ifdef DEBUG
         if(proc_info->rank==0){
-            printf("DEBUG -> Number of base blocks per row per process: %d\n", num_block_per_row_per_proc);
+            printf("DEBUG -> Number of base blocks per row per process: %d\n", 1);
             printf("DEBUG -> Number of base blocks per col per process: %d\n", num_block_per_col_per_proc);
             printf("DEBUG -> Number of extra blocks per col: %d\n", num_extra_block_per_col);
         }
     #endif
 
-    //Assign extra block to first processes cyclically TODO Ora solo p00 p01 p02 si beccano roba io voglio che più processi prendano la stessa cosa
-    if(proc_info->pg_row_idx<num_extra_block_per_col){
+    //Stavolta devo assegnare ciclicamente i blocchi extra ai processi che nella process grid hanno indice di colonna minore di num_extra_block_per_col
+    if(temp_proc_info->pg_col_idx<num_extra_block_per_col){
         num_block_per_col_per_proc++;
     }
     
     submatrix_elem_per_col=num_block_per_col_per_proc*row_block_size;
-    
-    if((proc_info->pg_row_idx==num_extra_block_per_col-1)&&(rem_block_per_col!=0)){
+
+    if((temp_proc_info->pg_col_idx==num_extra_block_per_col-1)&&(rem_block_per_col!=0)){
         submatrix_elem_per_col-=row_block_size-(rem_block_per_col);
     }
 
@@ -346,7 +357,10 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
     submat_info->num_blocks_per_col=num_block_per_col_per_proc;
     submat_info->submatrix_row=submatrix_elem_per_col;
     submat_info->submatrix_col=col; //Full row in row block distribution
-    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
+    
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of B\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
+    
+    free(temp_proc_info);
     return submat_info;
 }
 
