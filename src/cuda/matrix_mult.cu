@@ -13,11 +13,12 @@
 #include <cuda_profiler_api.h>
 #include <math.h>
 
-//#define _DEBUG
+#define _DEBUG
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 256
+#define BD 2
 #define BD2 24
+#define COLS 2
 
 const dim3 BLOCK_DIM(BD);
 
@@ -35,7 +36,7 @@ void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float*
         printf("CPU - A[%d]: %f --- B[%d]: %f\n", idx, A[idx], icx, x[icx]); 
         #endif
       }
-      y[i + row * n] = t;
+      y[i + row * n] += t;
     }
   }
 }
@@ -79,6 +80,86 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   case  4:  sdata[tid] += sdata[tid +  4];
   case  2:  sdata[tid] += sdata[tid +  2];
   case  1:  sdata[tid] += sdata[tid +  1];
+  }
+}
+
+__global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
+				const float* B, float* C) {
+  __shared__ float aux[COLS][BD];
+  int tc     = threadIdx.x;
+  int row    = blockIdx.x;
+  int s = min(16,BD/2);
+  int n_cols = COLS;
+  __shared__ float a_shared[BD];
+  
+  if (row < m) {
+    // Itero per ogni blocco di colonne della matrice B
+    for(int i = 0; i < n; i+= COLS){
+      // Se l'ultimo blocco di colonne è minore di COLS aggiorno il numero di colonne del blocco
+      if(i + COLS > n) n_cols = n % COLS; 
+
+      // Inizializzo la matrice ausiliaria per la reduce
+      for(int j = 0; j < n_cols; j++) aux[j][tc] = 0.0;
+
+
+      /*
+        Ogni processo si calcola il prodotto tra il valore della riga di A e gli elementi corrispondenti 
+        delle colonne del blocco di colonne di B 
+      */
+      int idxm = row*k+tc;  //indice dell'elemento della riga A associato al processo
+
+      // Itero sui blocchi della riga di A 
+      for (int ic= tc;  ic<k; ic += blockDim.x) {
+        //Ogni processo ha in memoria condivisa il valore del'elemento della riga di A corrispondente
+        a_shared[tc] = A[idxm];
+        // Itero sulle colonne del blocco di colonne di B
+        for(int j = 0; j < n_cols; j++){
+          // Calcolo l'indice dell'elemento di B corrispondente
+          int icx = (i + j) * k + ic;
+          aux[j][tc] += a_shared[tc]*B[icx];
+          #ifdef _DEBUG
+          printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
+        }
+        idxm +=  blockDim.x;
+      }
+      __syncthreads();
+
+      //print aux matrix
+      #ifdef _DEBUG
+      if(tc == 0){
+        for(int j = 0; j < n_cols; j++){
+          for(int k = 0; k < BD; k++){
+            printf("[BEFORE]row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
+          }
+        }
+      }
+      #endif
+
+      // Reduce
+      for(int j = 0; j < n_cols; j++){
+        for (int s2=BD/2; s2 >=32; s2 >>=1){
+          if (tc<s2)
+            aux[j][tc] += aux[j][tc+s2]; 
+          __syncthreads();
+        }
+      }
+
+      for(int j = 0; j < n_cols; j++){
+        if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
+
+        if (tc == 0){
+          #ifdef _DEBUG
+          if(1)
+          printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
+          printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
+          #endif
+
+          C[i + j + row * n] += aux[j][tc];
+        }
+      }
+    
+    }
   }
 }
 
@@ -141,7 +222,7 @@ __global__ void gpuMatrixVectorV4(int m, int k, int n, const float* A,
           printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
           #endif
 
-          y[i + j + row * n] = aux[j][tc];
+          y[i + j + row * n] += aux[j][tc];
         }
       }
     
@@ -368,6 +449,8 @@ int main(int argc, char** argv) {
     std::cout << "|"<< std::endl;
     #endif
   }
+
+  memset(h_y, 0, m * n * sizeof(float));
   
 
   std::cout << "Matrix-vector product: 1D thread block version " << std::endl;
@@ -384,6 +467,7 @@ int main(int argc, char** argv) {
   // Copy matrices from the host (CPU) to the device (GPU).
   checkCudaErrors(cudaMemcpy(d_A, h_A, m * k * sizeof(float), cudaMemcpyHostToDevice));
   checkCudaErrors(cudaMemcpy(d_B, h_B, k * n * sizeof(float), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(d_y, h_y, m * n * sizeof(float), cudaMemcpyHostToDevice));
 
   // ------------------------ Calculations on the CPU ------------------------- //
   
@@ -394,14 +478,14 @@ int main(int argc, char** argv) {
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
   
-  /*
+  
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  */
+  
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -412,7 +496,7 @@ int main(int argc, char** argv) {
   float gpuflops;
 
   //printf("size of shared memory: %d\n", smemSize);
-  /*
+  
   timer->reset();
   timer->start();
   gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
@@ -422,23 +506,29 @@ int main(int argc, char** argv) {
   gpuflops=flopcnt/ timer->getTime();
   std::cout << "  GPU time global memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
-  printf("size of shared memory: %d\n", smemSize);
+  float* zero = new float[m * n];
+  memset(zero, 0, m * n * sizeof(float));
+  checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
+  
+  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
   timer->reset();
   timer->start();
   cudaProfilerStart();
-  gpuMatrixVectorV2<<<GRID_DIM, BLOCK_DIM,  smemSize>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixVectorV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
   std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
-  */
-  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float));
+
+  checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
+
+  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
   timer->reset();
   timer->start();
   cudaProfilerStart();
-  gpuMatrixVectorV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixMatrix<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
@@ -483,11 +573,13 @@ int main(int argc, char** argv) {
   float diff = 0.0f;
   
   for (int row = 0; row < m; ++row) {
-    float maxabs = std::max(std::abs(h_y[row]),std::abs(h_y_d[row]));
-    if (maxabs == 0.0) maxabs=1.0;
-    reldiff = std::max(reldiff, std::abs(h_y[row] - h_y_d[row])/maxabs);
-    diff = std::max(diff, std::abs(h_y[row] - h_y_d[row]));
-    //std::cout << row<<" "<<h_y[row]<<" "<<h_y_d[row] <<std::endl;
+    for (int col = 0; col < n; ++col) {
+      float maxabs = std::max(std::abs(h_y[row + col * n]),std::abs(h_y_d[row + col * n]));
+      if (maxabs == 0.0) maxabs=1.0;
+      reldiff = std::max(reldiff, std::abs(h_y[row + col * n] - h_y_d[row + col * n])/maxabs);
+      diff = std::max(diff, std::abs(h_y[row + col * n] - h_y_d[row + col * n]));
+      //std::cout << row<<" "<<h_y[row]<<" "<<h_y_d[row] <<std::endl;
+    }
   }
   std::cout << "Max diff = " << diff << "  Max rel diff = " << reldiff << std::endl;
   // Rel diff should be as close as possible to unit roundoff; float
