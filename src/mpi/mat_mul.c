@@ -309,27 +309,27 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
     }
     temp_proc_info->rank=(proc_info->rank%pg_col);
     set_proc_grid_info(temp_proc_info, pg_col);
-    #ifdef DEBUG
-        printf("Rank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, temp_proc_info->rank, temp_proc_info->pg_row_idx, temp_proc_info->pg_col_idx);
+    #ifdef DEBUGg
+        printf("\nRank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, temp_proc_info->rank, temp_proc_info->pg_row_idx, temp_proc_info->pg_col_idx);
     #endif
     /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
      avrà solo un blocco completo per processo presente in ogni riga, quindi P00 avrà il blocco base 0 ed il blocco completo ma non base 2, 
      mentre P01 avrà il blocco base 1 e il blocco incompleto 3 che avrà una sola colonna
     */
-    num_block_per_col_per_proc=row/(row_block_size*pg_row);//Per ora sono solo blocchi base
+    num_block_per_col_per_proc=row/(row_block_size*pg_col);//Per ora sono solo blocchi base
 
     //Calcolo dei blocchi extra per colonna, sulle righe non ce ne sono perche le prendo intere
     rem_block_per_col=row%row_block_size;
-    temp=((int)ceil((float)row/row_block_size))%pg_row;
+    temp=((int)ceil((float)row/row_block_size))%pg_col; //Metto %col perche le sto assegnando a colonne di processi
 
     if(rem_block_per_col!=0&&(temp==0))
-        num_extra_block_per_col=pg_row;
+        num_extra_block_per_col=pg_col; //Metto %col perche le sto assegnando a colonne di processi
     else
         num_extra_block_per_col=temp;
 
     #ifdef DEBUG
         if(proc_info->rank==0){
-            printf("DEBUG -> Number of base blocks per row per process: %d\n", 1);
+            printf("\nDEBUG -> Number of base blocks per row per process: %d\n", 1);
             printf("DEBUG -> Number of base blocks per col per process: %d\n", num_block_per_col_per_proc);
             printf("DEBUG -> Number of extra blocks per col: %d\n", num_extra_block_per_col);
         }
@@ -406,7 +406,7 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
 
     MPI_File_close(&mat_file);
 
-    #ifdef DEBUG
+    #ifdef DEBUGg
     MPI_Barrier(proc_info->comm);
     for(int i=0; i<(proc_info->submat_B_info->submatrix_row)*(proc_info->submat_B_info->submatrix_col); i++){
         printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
