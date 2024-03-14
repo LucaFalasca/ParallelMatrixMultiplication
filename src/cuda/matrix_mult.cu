@@ -13,12 +13,13 @@
 #include <cuda_profiler_api.h>
 #include <math.h>
 
-#define _DEBUG
+//#define _DEBUG
+//#define NO_CPU
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 2
-#define BD2 24
-#define COLS 2
+#define BD 256
+#define BD2 28
+#define COLS 28
 
 const dim3 BLOCK_DIM(BD);
 
@@ -83,7 +84,8 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
   }
 }
 
-__global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
+
+__global__ void gpuMatrixMatrixUpgradeReduce(int m, int k, int n, const float* A,
 				const float* B, float* C) {
   __shared__ float aux[COLS][BD];
   int tc     = threadIdx.x;
@@ -116,6 +118,99 @@ __global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
         for(int j = 0; j < n_cols; j++){
           // Calcolo l'indice dell'elemento di B corrispondente
           int icx = (i + j) * k + ic;
+          //printf("icx %d --- icx2 %d\n", icx, icx2);
+          
+          aux[j][tc] += a_shared[tc]*B[icx];
+          #ifdef _DEBUG
+          printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
+          #endif
+        }
+        idxm +=  blockDim.x;
+      }
+      __syncthreads();
+
+      //print aux matrix
+      #ifdef _DEBUG
+      if(tc == 0){
+        for(int j = 0; j < n_cols; j++){
+          for(int k = 0; k < BD; k++){
+            printf("[BEFORE]row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
+          }
+        }
+      }
+      #endif
+
+      // Reduce
+      /*
+      for(int j = 0; j < n_cols; j++){
+        for (int s2=BD/2; s2 >=32; s2 >>=1){
+          if (tc<s2)
+            aux[j][tc] += aux[j][tc+s2]; 
+          __syncthreads();
+        }
+      }*/
+
+      for(int j = 0; j < n_cols; j++){
+        for (int s2=BD/2; s2 >=32; s2 >>=1){
+          if (tc<s2)
+            aux[j][tc] += aux[j][tc+s2]; 
+          __syncthreads();
+        }
+      }
+
+      for(int j = 0; j < n_cols; j++){
+        if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
+
+        if (tc == 0){
+          #ifdef _DEBUG
+          if(1)
+          printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
+          printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
+          #endif
+
+          C[i + j + row * n] += aux[j][tc];
+        }
+      }
+    
+    }
+  }
+}
+
+__global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
+				const float* B, float* C) {
+  __shared__ float aux[COLS][BD];
+  int tc     = threadIdx.x;
+  int row    = blockIdx.x;
+  int s = min(16,BD/2);
+  int n_cols = COLS;
+  __shared__ float a_shared[BD];
+  
+  if (row < m) {
+    // Itero per ogni blocco di colonne della matrice B
+    for(int i = 0; i < n; i+= COLS){
+      // Se l'ultimo blocco di colonne è minore di COLS aggiorno il numero di colonne del blocco
+      if(i + COLS > n) n_cols = n % COLS; 
+
+      // Inizializzo la matrice ausiliaria per la reduce
+      for(int j = 0; j < n_cols; j++) aux[j][tc] = 0.0;
+
+
+      /*
+        Ogni processo si calcola il prodotto tra il valore della riga di A e gli elementi corrispondenti 
+        delle colonne del blocco di colonne di B 
+      */
+      int idxm = row*k+tc;  //indice dell'elemento della riga A associato al processo
+
+      // Itero sui blocchi della riga di A 
+      for (int ic= tc;  ic<k; ic += blockDim.x) {
+        //Ogni processo ha in memoria condivisa il valore del'elemento della riga di A corrispondente
+        a_shared[tc] = A[idxm];
+        // Itero sulle colonne del blocco di colonne di B
+        for(int j = 0; j < n_cols; j++){
+          // Calcolo l'indice dell'elemento di B corrispondente
+          int icx = i * k + j * k + ic;
+          //printf("icx %d --- icx2 %d\n", icx, icx2);
+          
           aux[j][tc] += a_shared[tc]*B[icx];
           #ifdef _DEBUG
           printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
@@ -143,9 +238,7 @@ __global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
             aux[j][tc] += aux[j][tc+s2]; 
           __syncthreads();
         }
-      }
-
-      for(int j = 0; j < n_cols; j++){
+      
         if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
 
         if (tc == 0){
@@ -478,14 +571,14 @@ int main(int argc, char** argv) {
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
   
-  
+  #ifndef NO_CPU
   timer->start();
   CpuMatrixVector(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " GFLOPS " << cpuflops << std::endl;
-  
+  #endif
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -504,7 +597,7 @@ int main(int argc, char** argv) {
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time global memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time global memory v1: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   float* zero = new float[m * n];
   memset(zero, 0, m * n * sizeof(float));
@@ -520,7 +613,7 @@ int main(int argc, char** argv) {
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time v4: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
 
@@ -534,7 +627,21 @@ int main(int argc, char** argv) {
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time shared memory: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time Last one: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+
+  checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
+
+  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
+  timer->reset();
+  timer->start();
+  cudaProfilerStart();
+  gpuMatrixMatrixUpgradeReduce<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  cudaProfilerStop();
+  checkCudaErrors(cudaDeviceSynchronize());
+
+  timer->stop();
+  gpuflops=flopcnt/ timer->getTime();
+  std::cout << "  GPU time Reduce upgrade: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   
 
@@ -567,7 +674,7 @@ int main(int argc, char** argv) {
     std::cout << "|" << std::endl;
   }
   #endif
-
+  #ifndef NO_CPU
   // Now let's check if the results are the same.
   float reldiff = 0.0f;
   float diff = 0.0f;
@@ -586,6 +693,7 @@ int main(int argc, char** argv) {
   // corresponds to IEEE single precision, so unit roundoff is
   // 1.19e-07
   // 
+  #endif
 
 // ------------------------------- Cleaning up ------------------------------ //
 
