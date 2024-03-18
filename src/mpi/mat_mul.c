@@ -42,12 +42,12 @@ bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int 
 void set_proc_grid_info(struct proc_info* proc_info, int pg_col);
 struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct proc_info *proc_info);
-void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
-void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
+float * block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
+float * row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 
 int main(int argc, char *argv[]){
     int row_a, col_a, row_b, col_b, pg_row, pg_col, block_size;
-    float *mat_res;
+    float *submat_res, *submat_a, *submat_b;
     char mat_a_path[128], mat_b_path[128];
     struct proc_info *proc_info;
     MPI_Init(&argc, &argv);
@@ -106,19 +106,35 @@ int main(int argc, char *argv[]){
         }
     #endif
 
-    //block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, proc_info);
-    row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, proc_info);
+    submat_a=block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, proc_info);
+    submat_b=row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, proc_info);
+
+    int submat_A_row=proc_info->submat_A_info->submatrix_row;
+    int submat_A_col=proc_info->submat_A_info->submatrix_col;
+    int submat_B_col=proc_info->submat_B_info->submatrix_col;
+
+    //Allocate result submatrix TODO me la leggo?
+    submat_res=(float *) malloc(submat_A_row*submat_B_col*sizeof(float));
+    if(submat_res==NULL){
+        printf("Error in memory allocation for result matrix\n");
+        exit(1);
+    }
+    memset(submat_res, 0, submat_A_row*submat_B_col*sizeof(float));//TODO da togliere perchè C sarà popolata di suo
+    printf("Rank %d in grid (%d, %d) has %dx%d submatrix of A and %dx%d submatrix of B and result submatrix of %dx%d\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_A_row, submat_A_col, proc_info->submat_B_info->submatrix_row, submat_B_col, submat_A_row, submat_B_col);
+
+    //Perform multiplication of submatrix
+    matrix_multiply(submat_a, submat_b, submat_res, submat_A_row, submat_A_col, submat_B_col);
     MPI_Finalize();
     return 0;
 }
 
-void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2){
+void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2) {
     int i, j, k;
-    for (i = 0; i < r1; i++) {
-        for (j = 0; j < c2; j++) {
-            res[j*c2+i] = 0;
-            for (k = 0; k < c1; k++) {
-                res[i*c2+j] += mat1[i*c1+k] * mat2[k*c2+j];
+    for (i = 0; i < r1; ++i) {
+        for (j = 0; j < c2; ++j) {
+            //res[i * c2 + j] = 0;
+            for (k = 0; k < c1; ++k) {
+                res[i * c2 + j] += mat1[i * c1 + k] * mat2[k * c2 + j];
             }
         }
     }
@@ -148,7 +164,7 @@ bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int 
 }
 
 //Distribuzione della matrice in blocchi con metodo block cyclic
-void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
+float * block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     MPI_Status status;
     MPI_Datatype mat_darray;
     MPI_File mat_file;
@@ -193,10 +209,11 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     #ifdef DEBUG
     MPI_Barrier(proc_info->comm);
     for(int i=0; i<(proc_info->submat_A_info->submatrix_row)*(proc_info->submat_A_info->submatrix_col); i++){
-        printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
+        printf("DEBUG -> Rank (%d, %d) submatrix of A: %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
     #endif
     MPI_Type_free(&mat_darray); 
+    return recv_block;
 }
 
 //Compute the process coordinates in the processg grid
@@ -364,7 +381,7 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
     return submat_info;
 }
 
-void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
+float * row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     MPI_Status status;
     MPI_Datatype mat_darray;
     MPI_File mat_file;
@@ -406,11 +423,12 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
 
     MPI_File_close(&mat_file);
 
-    #ifdef DEBUGg
+    #ifdef DEBUG
     MPI_Barrier(proc_info->comm);
     for(int i=0; i<(proc_info->submat_B_info->submatrix_row)*(proc_info->submat_B_info->submatrix_col); i++){
-        printf("DEBUG -> Rank (%d, %d): %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
+        printf("DEBUG -> Rank (%d, %d) submatrix of B: %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
     }
     #endif
     MPI_Type_free(&mat_darray);
+    return recv_block;
  }
