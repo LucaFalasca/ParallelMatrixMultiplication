@@ -30,6 +30,9 @@ struct proc_info{
     int rank; //Process rank
     int size; //Number of processes
     MPI_Comm comm; //MPI communicator
+    MPI_Comm row_comm; //MPI communicator for the row division
+    int row_comm_rank; //Rank in the row communicator
+    int row_comm_size; //Size of the row communicator
     int pg_row_idx; //Process row index in the process grid 
     int pg_col_idx; //Process column index in the process grid
     struct proc_submatrix_info *submat_A_info; //Pointer to the submatrix info
@@ -44,6 +47,7 @@ struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_s
 struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 float * block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
 float * row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info);
+void create_row_comm(struct proc_info *proc_info, int pg_row);
 
 int main(int argc, char *argv[]){
     int row_a, col_a, row_b, col_b, pg_row, pg_col, block_size;
@@ -105,6 +109,8 @@ int main(int argc, char *argv[]){
             printf("DEBUG -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
         }
     #endif
+    set_proc_grid_info(proc_info, pg_col);
+    create_row_comm(proc_info, pg_row);
 
     submat_a=block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, proc_info);
     submat_b=row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, proc_info);
@@ -113,7 +119,7 @@ int main(int argc, char *argv[]){
     int submat_A_col=proc_info->submat_A_info->submatrix_col;
     int submat_B_col=proc_info->submat_B_info->submatrix_col;
 
-    //Allocate result submatrix TODO me la leggo?
+    //Allocate result submatrix TODO ognuno si alloca il suo pezzetto poi solo il processo leader si legge C e ci somma i parziali
     submat_res=(float *) malloc(submat_A_row*submat_B_col*sizeof(float));
     if(submat_res==NULL){
         printf("Error in memory allocation for result matrix\n");
@@ -124,6 +130,13 @@ int main(int argc, char *argv[]){
 
     //Perform multiplication of submatrix
     matrix_multiply(submat_a, submat_b, submat_res, submat_A_row, submat_A_col, submat_B_col);
+
+    //Free submatrix a and b
+    free(submat_a);
+    free(submat_b);
+
+    //Reduce partial results
+
     MPI_Finalize();
     return 0;
 }
@@ -132,9 +145,8 @@ void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c
     int i, j, k;
     for (i = 0; i < r1; ++i) {
         for (j = 0; j < c2; ++j) {
-            //res[i * c2 + j] = 0;
             for (k = 0; k < c1; ++k) {
-                res[i * c2 + j] += mat1[i * c1 + k] * mat2[k * c2 + j];
+                res[i * c2 + j] = mat1[i * c1 + k] * mat2[k * c2 + j];
             }
         }
     }
@@ -164,7 +176,7 @@ bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int 
 }
 
 //Distribuzione della matrice in blocchi con metodo block cyclic
-float * block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
+float *block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     MPI_Status status;
     MPI_Datatype mat_darray;
     MPI_File mat_file;
@@ -174,7 +186,6 @@ float * block_cyclic_distribution(char *mat_path, int row, int col, int block_si
     int proc_dims[2] = {pg_row, pg_col}; //Dimensione della griglia di processi
     float *recv_block;
 
-    set_proc_grid_info(proc_info, pg_col);
     proc_info->submat_A_info=compute_block_info(row, col, block_size, block_size, pg_row, pg_col, proc_info);
     
     recv_block = (float *) malloc(proc_info->submat_A_info->submatrix_row*proc_info->submat_A_info->submatrix_col*sizeof(float));
@@ -324,9 +335,9 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
         printf("Error in memory allocation for temp_proc_info in compute_block_info\n");
         exit(1);
     }
-    temp_proc_info->rank=(proc_info->rank%pg_col);
+    temp_proc_info->rank=(proc_info->rank%pg_col); //TODO Vedere se farlo con comunicatore
     set_proc_grid_info(temp_proc_info, pg_col);
-    #ifdef DEBUGg
+    #ifdef DEBUG
         printf("\nRank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, temp_proc_info->rank, temp_proc_info->pg_row_idx, temp_proc_info->pg_col_idx);
     #endif
     /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
@@ -381,7 +392,7 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
     return submat_info;
 }
 
-float * row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
+float *row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info){
     MPI_Status status;
     MPI_Datatype mat_darray;
     MPI_File mat_file;
@@ -391,7 +402,6 @@ float * row_block_cyclic_distribution(char *mat_path, int row, int col, int bloc
     int proc_dims[2] = {pg_col, 1}; //Dimensione della griglia di processi
     float *recv_block;
 
-    set_proc_grid_info(proc_info, pg_col);
     proc_info->submat_B_info=compute_row_block_info(row, col, block_size, pg_row, pg_col, proc_info);
 
     recv_block = (float *) malloc(proc_info->submat_B_info->submatrix_row*proc_info->submat_B_info->submatrix_col*sizeof(float));
@@ -431,4 +441,20 @@ float * row_block_cyclic_distribution(char *mat_path, int row, int col, int bloc
     #endif
     MPI_Type_free(&mat_darray);
     return recv_block;
+ }
+
+ void create_row_comm(struct proc_info *proc_info, int pg_row){
+    MPI_Comm row_comm;
+    int row_rank, row_size;
+    int color; //Ho al più pg_row colori
+    color = proc_info->pg_row_idx%pg_row;
+    MPI_Comm_split(proc_info->comm, color, proc_info->rank, &row_comm);
+    MPI_Comm_rank(row_comm, &row_rank);
+    MPI_Comm_size(row_comm, &row_size);
+    proc_info->row_comm=row_comm;
+    proc_info->row_comm_rank=row_rank;
+    proc_info->row_comm_size=row_size;
+    #ifdef DEBUG
+        printf("Rank %d in grid (%d, %d) has color %d and row communicator rank %d and size %d\n", proc_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, color, row_rank, row_size);
+    #endif
  }
