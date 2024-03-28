@@ -110,3 +110,6 @@ runt_b3_p3x3_8x7:
 
 runt_b3_8x7:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 3 data/matrix/bin/mat1_8x6.bin 8 7 data/matrix/bin/mat2_6x8.bin 7 8
+
+runt_5x7_7x4:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_5x7.bin 5 7 data/matrix/bin/mat2_7x4.bin 7 4
