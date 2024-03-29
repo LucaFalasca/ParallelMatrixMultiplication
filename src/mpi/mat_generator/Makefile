@@ -13,7 +13,13 @@ debug:
 	gcc main.c -DDEBUG -O3 -L. -lmy_lib -o main
 
 run:
-	./main ${name1} ${row1} ${col1} ${name2} ${row2} ${col2}
+	./main ${name1} ${row1} ${col1} ${name2} ${row2} ${col2} {name3} ${isZero} ${isDummy}
 
 runt:
-	./main ../data/matrix/ ${row1} ${col1} ../data/matrix/ ${row2} ${col2}
+	./main ../data/matrix/ ${row1} ${col1} ../data/matrix/ ${row2} ${col2} ../data/matrix/ 0 0
+
+runt0:
+	./main ../data/matrix/ ${row1} ${col1} ../data/matrix/ ${row2} ${col2} ../data/matrix/ 1 0
+
+runt_dummy:
+	./main ../data/matrix/ ${row1} ${col1} ../data/matrix/ ${row2} ${col2} ../data/matrix/ 1 1

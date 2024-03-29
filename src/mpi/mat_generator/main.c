@@ -6,11 +6,11 @@
 
 
 int main(int argc, char *argv[]){
-    int r1, c1, r2, c2, isZero;
-    char mat1path_txt[128], mat2path_txt[128], mat3_path_txt[128],mat1path_bin[128], mat2path_bin[128], mat3_path_bin[128];
+    int r1, c1, r2, c2, isZero, isDummy;
+    char mat1path_txt[128], mat2path_txt[128], mat3_path_txt[128],mat1path_bin[128], mat2path_bin[128], mat3_path_bin[128], mat3_path_bin_check[128];
     float *mat1, *mat2, *mat3;
-    if(argc<9){
-        printf("Usage ./a.out <mat1path> <rows1> <cols1> <mat2path> <rows2> <cols2> <mat3path> <empty>\n");
+    if(argc<10){
+        printf("Usage ./a.out <mat1path> <rows1> <cols1> <mat2path> <rows2> <cols2> <mat3path> <isZero> <isDummy>\n");
         exit(1);
     }
 
@@ -29,7 +29,9 @@ int main(int argc, char *argv[]){
     //Matrix 3
     strcpy(mat3_path_txt, argv[7]);
     strcpy(mat3_path_bin, argv[7]);
+    strcpy(mat3_path_bin_check, argv[7]);
     isZero = atoi(argv[8]);
+    isDummy = atoi(argv[9]);
 
     //Append matrix size to name
     strcat(mat1path_txt, "txt/mat1_");
@@ -68,17 +70,29 @@ int main(int argc, char *argv[]){
     strcat(mat3_path_bin, argv[6]);
     strcat(mat3_path_bin, ".bin");
 
+    strcat(mat3_path_bin_check, "bin/mat3_");
+    strcat(mat3_path_bin_check, argv[2]);
+    strcat(mat3_path_bin_check, "x");
+    strcat(mat3_path_bin_check, argv[6]);
+    strcat(mat3_path_bin_check, "_check");
+    strcat(mat3_path_bin_check, ".bin");
+
     printf("Generating matrices of size %d x %d, %d x %d and %d x %d\n", r1, c1, r2, c2, r1, c2);
 
     srand(1);
-    mat1 = generate_matrix(r1, c1);
-    mat2 = generate_matrix(r2, c2);
-    if(isZero)
-        mat3 = generate_matrix(r1, c2);
-    else{
-        mat3 = (float *)malloc(r1*c2*sizeof(float));
-        memset(mat3, 0, r1*c2*sizeof(float));
+    if(isDummy){
+        mat1 = generate_dummy_matrix(r1, c1, 1.0);
+        mat2 = generate_dummy_matrix(r2, c2, 1.0);
     }
+    else{
+        mat1 = generate_matrix(r1, c1);
+        mat2 = generate_matrix(r2, c2);
+    }
+    if((!isZero)&&(!isDummy))
+        mat3 = generate_matrix(r1, c2);
+    else
+        generate_dummy_matrix(r1, c2, 0.0);
+    
 
     #ifdef DEBUG
         printMatrix(mat1, r1, c1);
@@ -94,4 +108,7 @@ int main(int argc, char *argv[]){
 
     printf("Writing matrix 3 to %s and %s\n", mat3_path_txt, mat3_path_bin);
     write_matrix(mat3, r1, c2, mat3_path_txt, mat3_path_bin);
+
+    printf("Writing matrix 3 to %s\n", mat3_path_bin_check);
+    write_matrix(mat3, r1, c2, NULL, mat3_path_bin_check);
 }
