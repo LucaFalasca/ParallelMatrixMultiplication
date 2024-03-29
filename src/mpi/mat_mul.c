@@ -38,7 +38,7 @@ struct comm_info
 } comm_info;
 
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
-bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
+bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
 void set_proc_grid_info(int pg_col, struct comm_info *comm_info);
 void compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
 void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info, bool isC);
@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     MPI_Init(&argc, &argv);
     int row_a, col_a, row_b, col_b, pg_row, pg_col, block_size;
     float *partial_res;
-    char mat_a_path[128], mat_b_path[128], mat_c_path[128];
+    char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128];
     struct submat_info *submat_A_info, *submat_B_info, *submat_C_info;
     struct comm_info *comm_info, *row_comm_info, *row_leader_comm_info;
 
@@ -101,9 +101,9 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &(comm_info->size));
 
     /*Get parameters from cmd*/
-    if (argc < 11)
+    if (argc < 12)
     {
-        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath>\n");
+        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check\n");
         exit(1);
     }
 
@@ -133,6 +133,7 @@ int main(int argc, char *argv[])
 
     // Matric C data
     strcpy(mat_c_path, argv[10]);
+    strcpy(mat_c_path_check, argv[11]);
 
     /*Check size compatibility for matrix multiply*/
     if (col_a != row_b)
@@ -140,8 +141,6 @@ int main(int argc, char *argv[])
         printf("Incompatible matrix size for multiplication c1!=r2\n");
         exit(1);
     }
-
-#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of processes: %d\n", comm_info->size);
@@ -149,8 +148,9 @@ int main(int argc, char *argv[])
         printf("DEBUG -> Block size: %d x %d\n", block_size, block_size);
         printf("DEBUG -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
         printf("DEBUG -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
+        printf("DEBUG -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
+        printf("DEBUG -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
-#endif
     // Each process calculates its position in the process grid
     set_proc_grid_info(pg_col, comm_info);
 
@@ -218,12 +218,23 @@ int main(int argc, char *argv[])
 
     // Leader write result
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
-    {
+    {   
         block_cyclic_write_result(mat_c_path, row_a, col_b, block_size, 1, pg_col, submat_C_info, row_leader_comm_info);
     }
 
     // Free submat C
     free(submat_C_info);
+
+    MPI_Barrier(comm_info->comm);
+    if(comm_info->rank == 0){
+        printf("\n\n\n\nRank 0 checking result...\n");
+        bool check=seq_check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+        if(check)
+            printf("Result check passed\n");
+        else
+            printf("Result check failed\n");
+    }
+    
 
     MPI_Finalize();
     return 0;
@@ -244,25 +255,108 @@ void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c
     }
 }
 
-bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int c2)
+bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
 {
-    float *correct_res;
-    correct_res = (float *)malloc(r1 * c2 * sizeof(float));
-    if (correct_res == NULL)
+    float *mat_a, *mat_b, *mat_c, *mat_c_check;
+    MPI_File mat_a_file, mat_b_file, mat_c_file, mat_c_check_file;
+    MPI_Status status;
+
+    mat_a = (float *)malloc(r1 * c1 * sizeof(float));
+    if (mat_a == NULL)
     {
-        printf("Error in memory allocation for check result\n");
+        printf("Error in memory allocation for matrix A\n");
         exit(1);
     }
+
+    mat_b = (float *)malloc(c1 * c2 * sizeof(float));
+    if (mat_b == NULL)
+    {
+        printf("Error in memory allocation for matrix B\n");
+        exit(1);
+    }
+
+    mat_c = (float *)malloc(r1 * c2 * sizeof(float));
+    if (mat_c == NULL)
+    {
+        printf("Error in memory allocation for matrix C\n");
+        exit(1);
+    }
+    mat_c_check = (float *)malloc(r1 * c2 * sizeof(float));
+    if (mat_c_check == NULL)
+    {
+        printf("Error in memory allocation for matrix C check\n");
+        exit(1);
+    }
+
+    // Read matrix A
+    MPI_File_open(MPI_COMM_SELF, mat_a_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_a_file);
+    MPI_File_seek(mat_a_file, 2*sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_a_file, mat_a, r1*c1, MPI_FLOAT, &status);
+
+    // Read matrix B
+    MPI_File_open(MPI_COMM_SELF, mat_b_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_b_file);
+    MPI_File_seek(mat_b_file, 2*sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_b_file, mat_b, c1*c2, MPI_FLOAT, &status);
+
+    // Read matrix C
+    MPI_File_open(MPI_COMM_SELF, mat_c_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_file);
+    MPI_File_seek(mat_c_file, 2*sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_c_file, mat_c, r1*c2, MPI_FLOAT, &status);
+
+    // Read matrix C check
+    MPI_File_open(MPI_COMM_SELF, mat_c_path_check, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_check_file);
+    MPI_File_seek(mat_c_check_file, 2*sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_c_check_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
+
+    printf("Matrix A\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c1; j++)
+        {
+            printf("%f ", mat_a[i * c1 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("Matrix B\n");
+    for (int i = 0; i < c1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_b[i * c2 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("Matrix C\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_c[i * c2 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("Matrix C check\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_c_check[i * c2 + j]);
+        }
+        printf("\n");
+    }
+
     int i, j, k;
     for (i = 0; i < r1; i++)
     {
         for (j = 0; j < c2; j++)
         {
-            correct_res[j * c2 + i] = 0;
             for (k = 0; k < c1; k++)
             {
-                correct_res[j * c2 + i] += mat1[k * c1 + i] * mat2[j * c2 + k];
-                if (correct_res[j * c2 + i] != res[j * c2 + i])
+                mat_c_check[j * c2 + i] += mat_a[k * c1 + i] * mat_b[j * c2 + k];
+                if (mat_c_check[j * c2 + i] != mat_c[j * c2 + i])
                 {
                     printf("Error in position %d %d\n", i, j);
                     return false;
