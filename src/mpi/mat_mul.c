@@ -30,15 +30,15 @@ struct proc_submatrix_info
 
 struct comm_info
 {
-    MPI_Comm comm; // MPI communicator
-    int rank;      // Rank of the process in the communicator
-    int size;      // Number of processes in the communicator
+    MPI_Comm comm;  // MPI communicator
+    int rank;       // Rank of the process in the communicator
+    int size;       // Number of processes in the communicator
+    int pg_row_idx; // Process row index in the process grid
+    int pg_col_idx; // Process column index in the process grid
 } comm_info;
 
 struct proc_info
 {
-    int pg_row_idx;                              // Process row index in the process grid
-    int pg_col_idx;                              // Process column index in the process grid
     struct proc_submatrix_info *submat_A_info;   // Pointer to the submatrix info
     struct proc_submatrix_info *submat_B_info;   // Pointer to the submatrix info
     struct proc_submatrix_info *submat_res_info; // Pointer to the submatrix info
@@ -47,12 +47,12 @@ struct proc_info
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 bool seq_check_result(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 void set_proc_grid_info(struct proc_info *proc_info, int pg_col, struct comm_info *comm_info);
-struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info);
-struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info);
+struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info);
+struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info);
 float *block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info);
 float *row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info);
-void create_row_comm(struct proc_info *proc_info, int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info);
-void create_row_leader_comm(struct proc_info *proc_info, int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
+void create_row_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info);
+void create_row_leader_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
 
 int main(int argc, char *argv[])
 {
@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
     /*Get parameters from cmd*/
     if (argc < 10)
-    //if (argc < 11)
+    // if (argc < 11)
     {
         printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath>\n");
         exit(1);
@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
     col_b = atoi(argv[9]);
 
     // Matric C data
-    //strcpy(mat_c_path, argv[10]);
+    // strcpy(mat_c_path, argv[10]);
 
     /*Check size compatibility for matrix multiply*/
     if (col_a != row_b)
@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-#ifdef DEBUG
+//#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of processes: %d\n", comm_info->size);
@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
         printf("DEBUG -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
         printf("DEBUG -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
     }
-#endif
+//#endif
     // Each process calculates its position in the process grid
     set_proc_grid_info(proc_info, pg_col, comm_info);
 
@@ -151,10 +151,10 @@ int main(int argc, char *argv[])
     computes only only A*B and send the result to the leader that will sum the partial results and perform C+=A*B.
     All the followers work in different zones of the result matrix
     */
-    create_row_comm(proc_info, pg_row, comm_info, row_comm_info);
+    create_row_comm(pg_row, comm_info, row_comm_info);
 
-    //Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
-    create_row_leader_comm(proc_info, pg_row, comm_info, row_leader_comm_info);
+    // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
+    create_row_leader_comm(pg_row, comm_info, row_leader_comm_info);
 
     submat_a = block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, proc_info, comm_info);
     submat_b = row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, proc_info, comm_info);
@@ -165,17 +165,16 @@ int main(int argc, char *argv[])
 
     // Only the process leader of the row will have the result submatrix
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
-    {   
-        //TODO Qui mettere la block cyclic distribution di C
+    {
+        // TODO Qui mettere la block cyclic distribution di C
         submat_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
         if (submat_res == NULL)
         {
             printf("Error in memory allocation for result submatrix\n");
             exit(1);
         }
-        
     }
-    
+
     // Allocate result submatrix TODO ognuno si alloca il suo pezzetto poi solo il processo leader si legge C e ci somma i parziali
     partial_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
     if (partial_res == NULL)
@@ -183,7 +182,7 @@ int main(int argc, char *argv[])
         printf("Error in memory allocation for partial matrix result\n");
         exit(1);
     }
-    printf("Rank %d in grid (%d, %d) has %dx%d submatrix of A and %dx%d submatrix of B and result submatrix of %dx%d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_A_row, submat_A_col, proc_info->submat_B_info->submatrix_row, submat_B_col, submat_A_row, submat_B_col);
+    printf("Rank %d in grid (%d, %d) has %dx%d submatrix of A and %dx%d submatrix of B and result submatrix of %dx%d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_A_row, submat_A_col, proc_info->submat_B_info->submatrix_row, submat_B_col, submat_A_row, submat_B_col);
 
     // Perform multiplication of submatrix
     matrix_multiply(submat_a, submat_b, partial_res, submat_A_row, submat_A_col, submat_B_col);
@@ -191,7 +190,7 @@ int main(int argc, char *argv[])
     // Free submatrix a and b
     free(submat_a);
     free(submat_b);
-    
+
     MPI_Reduce(partial_res, submat_res, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
 
     // Free partial result matrix
@@ -257,7 +256,7 @@ float *block_cyclic_distribution(char *mat_path, int row, int col, int block_siz
     int proc_dims[2] = {pg_row, pg_col};                              // Dimensione della griglia di processi
     float *recv_block;
 
-    proc_info->submat_A_info = compute_block_info(row, col, block_size, block_size, pg_row, pg_col, proc_info, comm_info);
+    proc_info->submat_A_info = compute_block_info(row, col, block_size, block_size, pg_row, pg_col, comm_info);
 
     recv_block = (float *)malloc(proc_info->submat_A_info->submatrix_row * proc_info->submat_A_info->submatrix_col * sizeof(float));
     recv_block = memset(recv_block, 0, proc_info->submat_A_info->submatrix_row * proc_info->submat_A_info->submatrix_col * sizeof(float));
@@ -270,12 +269,12 @@ float *block_cyclic_distribution(char *mat_path, int row, int col, int block_siz
     MPI_Type_commit(&mat_darray);
 
 // Apertura collettiva del file
-#ifdef DEBUG
+//#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Opening file %s\n", mat_path);
     }
-#endif
+//#endif
     MPI_File_open(comm_info->comm, mat_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_file);
     if (mat_file == MPI_FILE_NULL)
     {
@@ -290,13 +289,13 @@ float *block_cyclic_distribution(char *mat_path, int row, int col, int block_siz
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG
+//#ifdef DEBUG
     MPI_Barrier(comm_info->comm);
     for (int i = 0; i < (proc_info->submat_A_info->submatrix_row) * (proc_info->submat_A_info->submatrix_col); i++)
     {
-        printf("DEBUG -> Rank (%d, %d) submatrix of A: %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
+        printf("DEBUG -> Rank (%d, %d) submatrix of A: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, recv_block[i]);
     }
-#endif
+//#endif
     MPI_Type_free(&mat_darray);
     return recv_block;
 }
@@ -304,12 +303,12 @@ float *block_cyclic_distribution(char *mat_path, int row, int col, int block_siz
 // Compute the process coordinates in the processg grid
 void set_proc_grid_info(struct proc_info *proc_info, int pg_col, struct comm_info *comm_info)
 {
-    proc_info->pg_row_idx = comm_info->rank / pg_col;
-    proc_info->pg_col_idx = comm_info->rank % pg_col;
+    comm_info->pg_row_idx = comm_info->rank / pg_col;
+    comm_info->pg_col_idx = comm_info->rank % pg_col;
 }
 
 // Calcolo delle informazioni sui blocchi per ogni processo
-struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info)
+struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info)
 {
     int submatrix_elem_per_row = 0, submatrix_elem_per_col = 0;
     int num_block_per_row_per_proc = 0, num_block_per_col_per_proc = 0;
@@ -348,7 +347,7 @@ struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_s
     else
         num_extra_block_per_col = temp;
 
-#ifdef DEBUG
+//#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of base blocks per row per process: %d\n", num_block_per_row_per_proc);
@@ -356,15 +355,15 @@ struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_s
         printf("DEBUG -> Number of extra blocks per row: %d\n", num_extra_block_per_row);
         printf("DEBUG -> Number of extra blocks per col: %d\n", num_extra_block_per_col);
     }
-#endif
+//#endif
 
     // Assign extra block to first processes cyclically
-    if (proc_info->pg_col_idx < num_extra_block_per_row)
+    if (comm_info->pg_col_idx < num_extra_block_per_row)
     {
         num_block_per_row_per_proc++;
     }
 
-    if (proc_info->pg_row_idx < num_extra_block_per_col)
+    if (comm_info->pg_row_idx < num_extra_block_per_col)
     {
         num_block_per_col_per_proc++;
     }
@@ -372,34 +371,34 @@ struct proc_submatrix_info *compute_block_info(int row, int col, int row_block_s
     submatrix_elem_per_row = num_block_per_row_per_proc * col_block_size;
     submatrix_elem_per_col = num_block_per_col_per_proc * row_block_size;
 
-    if ((proc_info->pg_col_idx == num_extra_block_per_row - 1) && (rem_block_per_row != 0))
+    if ((comm_info->pg_col_idx == num_extra_block_per_row - 1) && (rem_block_per_row != 0))
     {
         submatrix_elem_per_row -= col_block_size - (rem_block_per_row);
     }
 
-    if ((proc_info->pg_row_idx == num_extra_block_per_col - 1) && (rem_block_per_col != 0))
+    if ((comm_info->pg_row_idx == num_extra_block_per_col - 1) && (rem_block_per_col != 0))
     {
         submatrix_elem_per_col -= row_block_size - (rem_block_per_col);
     }
 
-#ifdef DEBUG
-    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, num_block_per_row_per_proc);
-    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, num_block_per_col_per_proc);
-    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submatrix_elem_per_row);
-    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix col size: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submatrix_elem_per_col);
-#endif
+//#ifdef DEBUG
+    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_row_per_proc);
+    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_col_per_proc);
+    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submatrix_elem_per_row);
+    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix col size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submatrix_elem_per_col);
+//#endif
 
     submat_info->num_blocks_per_row = num_block_per_row_per_proc;
     submat_info->num_blocks_per_col = num_block_per_col_per_proc;
     submat_info->submatrix_row = submatrix_elem_per_col;
     submat_info->submatrix_col = submatrix_elem_per_row;
 
-    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of A\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of A\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
     return submat_info;
 }
 
 // Calcolo delle informazioni sui blocchi per ogni processo
-struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct proc_info *proc_info, struct comm_info *comm_info)
+struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info)
 {
     int submatrix_elem_per_row = 0, submatrix_elem_per_col = 0;
     int num_block_per_col_per_proc = 0;
@@ -428,9 +427,9 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
 
     temp_comm_info->rank = (comm_info->rank % pg_col); // TODO Vedere se farlo con comunicatore
     set_proc_grid_info(temp_proc_info, pg_col, temp_comm_info);
-#ifdef DEBUG
-    printf("\nRank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, temp_comm_info->rank, temp_proc_info->pg_row_idx, temp_proc_info->pg_col_idx);
-#endif
+//#ifdef DEBUG
+    printf("\nRank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, temp_comm_info->rank, temp_comm_info->pg_row_idx, temp_comm_info->pg_col_idx);
+//#endif
     /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
      avrà solo un blocco completo per processo presente in ogni riga, quindi P00 avrà il blocco base 0 ed il blocco completo ma non base 2,
      mentre P01 avrà il blocco base 1 e il blocco incompleto 3 che avrà una sola colonna
@@ -446,41 +445,41 @@ struct proc_submatrix_info *compute_row_block_info(int row, int col, int row_blo
     else
         num_extra_block_per_col = temp;
 
-#ifdef DEBUG
+//#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("\nDEBUG -> Number of base blocks per row per process: %d\n", 1);
         printf("DEBUG -> Number of base blocks per col per process: %d\n", num_block_per_col_per_proc);
         printf("DEBUG -> Number of extra blocks per col: %d\n", num_extra_block_per_col);
     }
-#endif
+//#endif
 
     // Stavolta devo assegnare ciclicamente i blocchi extra ai processi che nella process grid hanno indice di colonna minore di num_extra_block_per_col
-    if (temp_proc_info->pg_col_idx < num_extra_block_per_col)
+    if (temp_comm_info->pg_col_idx < num_extra_block_per_col)
     {
         num_block_per_col_per_proc++;
     }
 
     submatrix_elem_per_col = num_block_per_col_per_proc * row_block_size;
 
-    if ((temp_proc_info->pg_col_idx == num_extra_block_per_col - 1) && (rem_block_per_col != 0))
+    if ((temp_comm_info->pg_col_idx == num_extra_block_per_col - 1) && (rem_block_per_col != 0))
     {
         submatrix_elem_per_col -= row_block_size - (rem_block_per_col);
     }
 
-#ifdef DEBUG
-    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, 1);
-    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, num_block_per_col_per_proc);
-    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, col);
-    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix col size: %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submatrix_elem_per_col);
-#endif
+//#ifdef DEBUG
+    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, 1);
+    printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_col_per_proc);
+    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, col);
+    printf("DEBUG -> Rank %d pos (%d,%d) Submatrix col size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submatrix_elem_per_col);
+//#endif
 
     submat_info->num_blocks_per_row = 1;
     submat_info->num_blocks_per_col = num_block_per_col_per_proc;
     submat_info->submatrix_row = submatrix_elem_per_col;
     submat_info->submatrix_col = col; // Full row in row block distribution
 
-    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of B\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
+    printf("Rank %d in grid position (%d, %d) has %d x %d submatrix of B\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submatrix_row, submat_info->submatrix_col);
 
     free(temp_proc_info);
     return submat_info;
@@ -498,7 +497,7 @@ float *row_block_cyclic_distribution(char *mat_path, int row, int col, int block
     int proc_dims[2] = {pg_col, 1};                                   // Dimensione della griglia di processi
     float *recv_block;
 
-    proc_info->submat_B_info = compute_row_block_info(row, col, block_size, pg_row, pg_col, proc_info, comm_info);
+    proc_info->submat_B_info = compute_row_block_info(row, col, block_size, pg_row, pg_col, comm_info);
 
     recv_block = (float *)malloc(proc_info->submat_B_info->submatrix_row * proc_info->submat_B_info->submatrix_col * sizeof(float));
     recv_block = memset(recv_block, 0, proc_info->submat_B_info->submatrix_row * proc_info->submat_B_info->submatrix_col * sizeof(float));
@@ -511,12 +510,12 @@ float *row_block_cyclic_distribution(char *mat_path, int row, int col, int block
     MPI_Type_commit(&mat_darray);
 
 // Apertura collettiva del file
-#ifdef DEBUG
+//#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Opening file %s\n", mat_path);
     }
-#endif
+//#endif
     MPI_File_open(comm_info->comm, mat_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_file);
     if (mat_file == MPI_FILE_NULL)
     {
@@ -531,51 +530,53 @@ float *row_block_cyclic_distribution(char *mat_path, int row, int col, int block
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG
+//#ifdef DEBUG
     MPI_Barrier(comm_info->comm);
     for (int i = 0; i < (proc_info->submat_B_info->submatrix_row) * (proc_info->submat_B_info->submatrix_col); i++)
     {
-        printf("DEBUG -> Rank (%d, %d) submatrix of B: %f\n", proc_info->pg_row_idx, proc_info->pg_col_idx, recv_block[i]);
+        printf("DEBUG -> Rank (%d, %d) submatrix of B: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, recv_block[i]);
     }
-#endif
+//#endif
     MPI_Type_free(&mat_darray);
     return recv_block;
 }
 
 // Create communicator for row of processes
-void create_row_comm(struct proc_info *proc_info, int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info)
+void create_row_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info)
 {
     MPI_Comm row_comm;
     int row_rank, row_size;
     int color; // Ho al più pg_row colori
-    color = proc_info->pg_row_idx % pg_row;
+    color = comm_info->pg_row_idx % pg_row;
     MPI_Comm_split(comm_info->comm, color, comm_info->rank, &row_comm);
     MPI_Comm_rank(row_comm, &row_rank);
     MPI_Comm_size(row_comm, &row_size);
     row_comm_info->comm = row_comm;
     row_comm_info->rank = row_rank;
     row_comm_info->size = row_size;
-#ifdef DEBUG
-    printf("Rank %d in grid (%d, %d) has color %d and row communicator rank %d and size %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, color, row_rank, row_size);
-#endif
+//#ifdef DEBUG
+    printf("Rank %d in grid (%d, %d) has color %d and row communicator rank %d and size %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, color, row_rank, row_size);
+//#endif
 }
 
-void create_row_leader_comm(struct proc_info *proc_info, int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
-{   
+void create_row_leader_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
+{
     int ranks_to_include[pg_row]; // Add only the current process
     MPI_Group group, row_leader_group;
     MPI_Comm row_leader_comm;
     int row_leader_comm_rank, row_leader_comm_size;
 
-    for(int i=0; i<pg_row; i++){
-        ranks_to_include[i] = i*pg_row;
+    for (int i = 0; i < pg_row; i++)
+    {
+        ranks_to_include[i] = i * pg_row;
     }
-    
+
     MPI_Comm_group(comm_info->comm, &group);
     MPI_Group_incl(group, pg_row, ranks_to_include, &row_leader_group);
     MPI_Comm_create(comm_info->comm, row_leader_group, &row_leader_comm);
 
-    if(row_leader_comm == MPI_COMM_NULL){
+    if (row_leader_comm == MPI_COMM_NULL)
+    {
         row_leader_comm_info->rank = MPI_UNDEFINED;
         return;
     }
@@ -586,8 +587,8 @@ void create_row_leader_comm(struct proc_info *proc_info, int pg_row, struct comm
     row_leader_comm_info->rank = row_leader_comm_rank;
     row_leader_comm_info->size = row_leader_comm_size;
 
-#ifdef DEBUG
-    if(comm_info->rank != MPI_UNDEFINED)
-        printf("Rank %d in grid (%d, %d) belongs to row leader communicator of size %d with rank %d\n", comm_info->rank, proc_info->pg_row_idx, proc_info->pg_col_idx, row_leader_comm_size, row_leader_comm_rank);
-#endif
+//#ifdef DEBUG
+    if (comm_info->rank != MPI_UNDEFINED)
+        printf("Rank %d in grid (%d, %d) belongs to row leader communicator of size %d with rank %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, row_leader_comm_size, row_leader_comm_rank);
+//#endif
 }
