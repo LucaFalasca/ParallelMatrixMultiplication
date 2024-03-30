@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
 
     // Leader write result
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
-    {   
+    {  
         block_cyclic_write_result(mat_c_path, row_a, col_b, block_size, 1, pg_col, submat_C_info, row_leader_comm_info);
     }
 
@@ -350,20 +350,24 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
     }
 
     int i, j, k;
-    printf("Correct result\n");
     matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2);
     for (i = 0; i < r1; i++)
     {
         for (j = 0; j < c2; j++)
         {
-            /*if(mat_c[i*c2+j]!=mat_c_check[i*c2+j]){
+            if(mat_c[i*c2+j]!=mat_c_check[i*c2+j]){
                 printf("Error in position %d %d\n", i, j);
+                //Restore matrix C for repeatability
+                MPI_File_write(mat_c_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
                 return false;
-            }*/
-            printf("%f ", mat_c_check[i * c2 + j]);
+            }
+            //printf("%f ", mat_c_check[i * c2 + j]);
         }
         printf("\n");
     }
+
+    //Restore matrix C for repeatability
+    MPI_File_write(mat_c_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
     return true;
 }
 
@@ -741,7 +745,7 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
         printf("DEBUG -> Opening file %s\n", mat_path);
     }
 #endif
-    MPI_File_open(comm_info->comm, mat_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_file);
+    MPI_File_open(comm_info->comm, mat_path, MPI_MODE_WRONLY, MPI_INFO_NULL, &mat_file);
     if (mat_file == MPI_FILE_NULL)
     {
         printf("Error opening file %s in block cyclic distribution\n", mat_path);
@@ -754,7 +758,7 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     //Print what is going to be written
     for (int i = 0; i < submat_info->submat_row * submat_info->submat_col; i++)
     {
-        printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat[i], i);
+        printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C to write\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat[i], i);
     }
 
     MPI_File_write_all(mat_file, submat_info->submat, submat_info->submat_row * submat_info->submat_col, MPI_FLOAT, &status);
