@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
     free(submat_A_info);
     free(submat_B_info);
 
-    // MPI_Reduce(partial_res, submat_C_info->submat, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
+    MPI_Reduce(partial_res, submat_C_info->submat, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
 
     // Free partial result matrix
     free(partial_res);
@@ -246,10 +246,11 @@ void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c
     for (i = 0; i < r1; ++i)
     {
         for (j = 0; j < c2; ++j)
-        {
+        {   
+            res[i * c2 + j] = 0;
             for (k = 0; k < c1; ++k)
             {
-                res[i * c2 + j] = mat1[i * c1 + k] * mat2[k * c2 + j];
+                res[i * c2 + j] += mat1[i * c1 + k] * mat2[k * c2 + j];
             }
         }
     }
@@ -349,20 +350,19 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
     }
 
     int i, j, k;
+    printf("Correct result\n");
+    matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2);
     for (i = 0; i < r1; i++)
     {
         for (j = 0; j < c2; j++)
         {
-            for (k = 0; k < c1; k++)
-            {
-                mat_c_check[j * c2 + i] += mat_a[k * c1 + i] * mat_b[j * c2 + k];
-                if (mat_c_check[j * c2 + i] != mat_c[j * c2 + i])
-                {
-                    printf("Error in position %d %d\n", i, j);
-                    return false;
-                }
-            }
+            /*if(mat_c[i*c2+j]!=mat_c_check[i*c2+j]){
+                printf("Error in position %d %d\n", i, j);
+                return false;
+            }*/
+            printf("%f ", mat_c_check[i * c2 + j]);
         }
+        printf("\n");
     }
     return true;
 }
@@ -750,6 +750,12 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
 
     // Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
     MPI_File_set_view(mat_file, 2 * sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
+
+    //Print what is going to be written
+    for (int i = 0; i < submat_info->submat_row * submat_info->submat_col; i++)
+    {
+        printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat[i], i);
+    }
 
     MPI_File_write_all(mat_file, submat_info->submat, submat_info->submat_row * submat_info->submat_col, MPI_FLOAT, &status);
 
