@@ -53,6 +53,7 @@ int main(int argc, char *argv[])
     MPI_Init(&argc, &argv);
     int row_a, col_a, row_b, col_b, pg_row, pg_col, block_size;
     float *partial_res;
+    double start;
     char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128];
     struct submat_info *submat_A_info, *submat_B_info, *submat_C_info;
     struct comm_info *comm_info, *row_comm_info, *row_leader_comm_info;
@@ -141,6 +142,10 @@ int main(int argc, char *argv[])
         printf("Incompatible matrix size for multiplication c1!=r2\n");
         exit(1);
     }
+
+start=MPI_Wtime();
+
+#ifdef DEBUG
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of processes: %d\n", comm_info->size);
@@ -151,6 +156,8 @@ int main(int argc, char *argv[])
         printf("DEBUG -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
         printf("DEBUG -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
+#endif
+
     // Each process calculates its position in the process grid
     set_proc_grid_info(pg_col, comm_info);
 
@@ -202,7 +209,9 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+#ifdef DEBUG
     printf("Rank %d in grid (%d, %d) has %dx%d submat of A, %dx%d submat of B, %dx%d submat of C and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
+#endif
 
     // Perform multiplication of submat
     matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col);
@@ -224,6 +233,13 @@ int main(int argc, char *argv[])
 
     // Free submat C
     free(submat_C_info);
+
+    if(comm_info->rank==0){
+        double end = MPI_Wtime();
+        printf("Measured performance:\n");
+        printf("GFLOPS: %lf\n", (2.0*row_a*col_a*col_b)/(end-start)/1e9);
+        printf("Elapsed %lf ms\n", (end-start)*1000);
+    }
 
     MPI_Barrier(comm_info->comm);
     if(comm_info->rank == 0){
@@ -309,6 +325,7 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
     MPI_File_seek(mat_c_check_file, 2*sizeof(int), MPI_SEEK_SET);
     MPI_File_read(mat_c_check_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
 
+#ifdef DEBUG
     printf("Matrix A\n");
     for (int i = 0; i < r1; i++)
     {
@@ -348,6 +365,7 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
         }
         printf("\n");
     }
+#endif
 
     int i, j, k;
     matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2);
@@ -755,11 +773,13 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     // Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
     MPI_File_set_view(mat_file, 2 * sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
 
+#ifdef DEBUG
     //Print what is going to be written
     for (int i = 0; i < submat_info->submat_row * submat_info->submat_col; i++)
     {
         printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C to write\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat[i], i);
     }
+#endif
 
     MPI_File_write_all(mat_file, submat_info->submat, submat_info->submat_row * submat_info->submat_col, MPI_FLOAT, &status);
 
