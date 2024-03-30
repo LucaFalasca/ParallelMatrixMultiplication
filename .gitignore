@@ -6,3 +6,8 @@
 /src/cuda/Makefile
 /src/mpi/data/matrix/bin/
 /src/mpi/data/matrix/txt/
+src/mpi/mat_generator/libmy_lib.a
+src/mpi/mat_generator/main
+src/mpi/mat_generator/mat_generator.o
+src/mpi/util/utils.o
+src/mpi/libmy_lib.a

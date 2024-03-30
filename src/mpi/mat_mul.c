@@ -142,11 +142,8 @@ int main(int argc, char *argv[])
         printf("Incompatible matrix size for multiplication c1!=r2\n");
         exit(1);
     }
-
-start=MPI_Wtime();
-
-#ifdef DEBUG
-    if (comm_info->rank == 0)
+    
+if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of processes: %d\n", comm_info->size);
         printf("DEBUG -> Process grid size: %d x %d\n", pg_row, pg_col);
@@ -156,7 +153,9 @@ start=MPI_Wtime();
         printf("DEBUG -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
         printf("DEBUG -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
-#endif
+
+start=MPI_Wtime();
+
 
     // Each process calculates its position in the process grid
     set_proc_grid_info(pg_col, comm_info);
