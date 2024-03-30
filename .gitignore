@@ -4,3 +4,5 @@
 /src/cuda/cmake_install.cmake
 /src/cuda/CMakeCache.txt
 /src/cuda/Makefile
+/src/mpi/data/matrix/bin/
+/src/mpi/data/matrix/txt/
