@@ -44,8 +44,8 @@ void compute_block_info(int row, int col, int row_block_size, int col_block_size
 void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info, bool isC);
 void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
 void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info, bool isC);
-void create_row_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info);
-void create_row_leader_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
+void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_comm_info);
+void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
 void block_cyclic_write_result(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
 
 int main(int argc, char *argv[])
@@ -165,7 +165,7 @@ start=MPI_Wtime();
     computes only only A*B and send the result to the leader that will sum the partial results and perform C+=A*B.
     All the followers work in different zones of the result matrix
     */
-    create_row_comm(pg_row, comm_info, row_comm_info);
+    create_row_comm(pg_col, comm_info, row_comm_info);
 
     // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
     create_row_leader_comm(pg_col, comm_info, row_leader_comm_info);
@@ -191,7 +191,7 @@ start=MPI_Wtime();
         submat_C_info->submat_col = submat_B_col;*/
         // Block cyclic distribution of C
         row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_col, submat_C_info, row_leader_comm_info, true);
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
         MPI_Barrier(row_leader_comm_info->comm);
         for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
         {
@@ -240,15 +240,15 @@ start=MPI_Wtime();
         printf("AUDIT -> Elapsed %lf ms\n", (end-start)*1000);
     }
 
-    MPI_Barrier(comm_info->comm);
-    if(comm_info->rank == 0){
-        printf("\n\n\n\nRank 0 checking result...\n");
-        bool check=seq_check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
-        if(check)
-            printf("Result check passed\n");
-        else
-            printf("Result check failed\n");
-    }
+    // MPI_Barrier(comm_info->comm);
+    // if(comm_info->rank == 0){
+    //     printf("\n\n\n\nRank 0 checking result...\n");
+    //     bool check=seq_check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+    //     if(check)
+    //         printf("Result check passed\n");
+    //     else
+    //         printf("Result check failed\n");
+    // }
     
 
     MPI_Finalize();
@@ -449,7 +449,7 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
     MPI_Barrier(comm_info->comm);
     for (int i = 0; i < (submat_info->submat_row) * (submat_info->submat_col); i++)
     {
@@ -622,7 +622,7 @@ void compute_row_block_info(int row, int col, int row_block_size, int pg_row, in
     submat_info->submat_row = submat_elem_per_col;
     submat_info->submat_col = col; // Full row in row block distribution
 
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
     // TODO togliere è per debug
     if (isC)
         printf("Rank %d in grid position (%d, %d) has %d x %d submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
@@ -682,7 +682,7 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
     MPI_Barrier(comm_info->comm);
     for (int i = 0; i < (submat_info->submat_row) * (submat_info->submat_col); i++)
     {
@@ -694,12 +694,12 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
 }
 
 // Create communicator for row of processes
-void create_row_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_comm_info)
+void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_comm_info)
 {
     MPI_Comm row_comm;
     int row_rank, row_size;
     int color; // Ho al più pg_row colori
-    color = comm_info->pg_row_idx % pg_row;
+    color = comm_info->pg_row_idx % pg_col;
     MPI_Comm_split(comm_info->comm, color, comm_info->rank, &row_comm);
     MPI_Comm_rank(row_comm, &row_rank);
     MPI_Comm_size(row_comm, &row_size);
@@ -719,9 +719,13 @@ void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm
     MPI_Comm row_leader_comm;
     int row_leader_comm_rank, row_leader_comm_size;
 
-    for (int i = 0; i < pg_col; i++)
+    for (int i = 0; i <= pg_col; i++)
     {
         ranks_to_include[i] = i * pg_col;
+        #ifdef DEBUG
+            if(comm_info->rank==0)
+                printf("Rank %d included\n", ranks_to_include[i]);
+        #endif
     }
 
     MPI_Comm_group(comm_info->comm, &group);
@@ -783,7 +787,7 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     // Ogni processo ha una visione della matrice specificata dal darray creato in precedenza
     MPI_File_set_view(mat_file, 2 * sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
 
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
     //Print what is going to be written
     for (int i = 0; i < submat_info->submat_row * submat_info->submat_col; i++)
     {

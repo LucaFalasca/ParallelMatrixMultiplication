@@ -8,6 +8,9 @@ build:
 debug:
 	mpicc -DDEBUG mat_mul.c -O3 
 
+debug_el:
+	mpicc -DDEBUG_ELEMENT mat_mul.c -O3 
+
 #pgr and pgc are process grid number of rows and columns
 run:
 	mpirun -np ${np} --oversubscribe ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2}
