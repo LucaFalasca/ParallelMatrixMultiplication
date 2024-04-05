@@ -114,3 +114,8 @@ runt_b3_8x7:
 runt_5x7_7x4:
 	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_5x7.bin 5 7 data/matrix/bin/mat2_7x4.bin 7 4 data/matrix/bin/mat3_5x4.bin data/matrix/bin/mat3_5x4_check.bin
 
+runt_13x19_19x9:
+	mpirun -np 4 --oversubscribe ./a.out 2 2 2 data/matrix/bin/mat1_13x19.bin 13 19 data/matrix/bin/mat2_19x9.bin 19 9 data/matrix/bin/mat3_13x9.bin data/matrix/bin/mat3_13x9_check.bin
+
+runt_13x19_19x9_p9:
+	mpirun -np 9 --oversubscribe ./a.out 3 3 2 data/matrix/bin/mat1_13x19.bin 13 19 data/matrix/bin/mat2_19x9.bin 19 9 data/matrix/bin/mat3_13x9.bin data/matrix/bin/mat3_13x9_check.bin

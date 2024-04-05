@@ -145,13 +145,13 @@ int main(int argc, char *argv[])
     
 if (comm_info->rank == 0)
     {
-        printf("DEBUG -> Number of processes: %d\n", comm_info->size);
-        printf("DEBUG -> Process grid size: %d x %d\n", pg_row, pg_col);
-        printf("DEBUG -> Block size: %d x %d\n", block_size, block_size);
-        printf("DEBUG -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
-        printf("DEBUG -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
-        printf("DEBUG -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
-        printf("DEBUG -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
+        printf("AUDIT -> Number of processes: %d\n", comm_info->size);
+        printf("AUDIT -> Process grid size: %d x %d\n", pg_row, pg_col);
+        printf("AUDIT -> Block size: %d x %d\n", block_size, block_size);
+        printf("AUDIT -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
+        printf("AUDIT -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
+        printf("AUDIT -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
+        printf("AUDIT -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
 
 start=MPI_Wtime();
@@ -168,7 +168,7 @@ start=MPI_Wtime();
     create_row_comm(pg_row, comm_info, row_comm_info);
 
     // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
-    create_row_leader_comm(pg_row, comm_info, row_leader_comm_info);
+    create_row_leader_comm(pg_col, comm_info, row_leader_comm_info);
 
     block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, submat_A_info, comm_info);
     row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info, false);
@@ -235,9 +235,9 @@ start=MPI_Wtime();
 
     if(comm_info->rank==0){
         double end = MPI_Wtime();
-        printf("Measured performance:\n");
-        printf("GFLOPS: %lf\n", (2.0*row_a*col_a*col_b)/(end-start)/1e9);
-        printf("Elapsed %lf ms\n", (end-start)*1000);
+        printf("AUDIT -> Measured performance:\n");
+        printf("AUDIT -> GFLOPS: %lf\n", (2.0*row_a*col_a*col_b)/(end-start)/1e9);
+        printf("AUDIT -> Elapsed %lf ms\n", (end-start)*1000);
     }
 
     MPI_Barrier(comm_info->comm);
@@ -304,6 +304,7 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
         exit(1);
     }
 
+
     // Read matrix A
     MPI_File_open(MPI_COMM_SELF, mat_a_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_a_file);
     MPI_File_seek(mat_a_file, 2*sizeof(int), MPI_SEEK_SET);
@@ -323,6 +324,16 @@ bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_pat
     MPI_File_open(MPI_COMM_SELF, mat_c_path_check, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_check_file);
     MPI_File_seek(mat_c_check_file, 2*sizeof(int), MPI_SEEK_SET);
     MPI_File_read(mat_c_check_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
+
+//   printf("Matrix C\n");
+//     for (int i = 0; i < r1; i++)ma
+//     {
+//         for (int j = 0; j < c2; j++)
+//         {
+//             printf("%f ", mat_c[i * c2 + j]);
+//         }
+//         printf("\n");
+//     }  
 
 #ifdef DEBUG
     printf("Matrix A\n");
@@ -701,20 +712,20 @@ void create_row_comm(int pg_row, struct comm_info *comm_info, struct comm_info *
 }
 
 // Create communicator for row of processes
-void create_row_leader_comm(int pg_row, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
+void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
 {
-    int ranks_to_include[pg_row]; // Add only the current process
+    int ranks_to_include[pg_col]; // Add only the current process
     MPI_Group group, row_leader_group;
     MPI_Comm row_leader_comm;
     int row_leader_comm_rank, row_leader_comm_size;
 
-    for (int i = 0; i < pg_row; i++)
+    for (int i = 0; i < pg_col; i++)
     {
-        ranks_to_include[i] = i * pg_row;
+        ranks_to_include[i] = i * pg_col;
     }
 
     MPI_Comm_group(comm_info->comm, &group);
-    MPI_Group_incl(group, pg_row, ranks_to_include, &row_leader_group);
+    MPI_Group_incl(group, pg_col, ranks_to_include, &row_leader_group);
     MPI_Comm_create(comm_info->comm, row_leader_group, &row_leader_comm);
 
     if (row_leader_comm == MPI_COMM_NULL)
