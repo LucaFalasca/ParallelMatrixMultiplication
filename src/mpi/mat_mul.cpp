@@ -1,4 +1,5 @@
 #include <mpi.h>
+#include <iostream>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -37,15 +38,16 @@ struct comm_info
     int pg_col_idx; // Process column index in the process grid
 } comm_info;
 
-void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
-bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
+void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero);
+void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
 void set_proc_grid_info(int pg_col, struct comm_info *comm_info);
 void compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
-void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info, bool isC);
+void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
 void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
-void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info, bool isC);
+void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
 void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_comm_info);
-void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
+void create_col_comm(int pg_row, struct comm_info *comm_info, struct comm_info *col_comm_info);
+void create_row_leader_comm(int pg_row, int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
 void block_cyclic_write_result(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
 
 int main(int argc, char *argv[])
@@ -56,7 +58,7 @@ int main(int argc, char *argv[])
     double start;
     char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128];
     struct submat_info *submat_A_info, *submat_B_info, *submat_C_info;
-    struct comm_info *comm_info, *row_comm_info, *row_leader_comm_info;
+    struct comm_info *comm_info, *row_comm_info, *col_comm_info, *row_leader_comm_info;
 
     submat_A_info = (struct submat_info *)malloc(sizeof(struct submat_info));
     if (submat_A_info == NULL)
@@ -89,6 +91,12 @@ int main(int argc, char *argv[])
     if (row_comm_info == NULL)
     {
         printf("Error in memory allocation for row_comm_info\n");
+        exit(1);
+    }
+    col_comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
+    if (col_comm_info == NULL)
+    {
+        printf("Error in memory allocation for col_comm_info\n");
         exit(1);
     }
     row_leader_comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
@@ -142,8 +150,8 @@ int main(int argc, char *argv[])
         printf("Incompatible matrix size for multiplication c1!=r2\n");
         exit(1);
     }
-    
-if (comm_info->rank == 0)
+
+    if (comm_info->rank == 0)
     {
         printf("AUDIT -> Number of processes: %d\n", comm_info->size);
         printf("AUDIT -> Process grid size: %d x %d\n", pg_row, pg_col);
@@ -154,8 +162,7 @@ if (comm_info->rank == 0)
         printf("AUDIT -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
 
-start=MPI_Wtime();
-
+    start = MPI_Wtime();
 
     // Each process calculates its position in the process grid
     set_proc_grid_info(pg_col, comm_info);
@@ -166,39 +173,36 @@ start=MPI_Wtime();
     All the followers work in different zones of the result matrix
     */
     create_row_comm(pg_col, comm_info, row_comm_info);
+    create_col_comm(pg_row, comm_info, col_comm_info);
 
     // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
-    create_row_leader_comm(pg_col, comm_info, row_leader_comm_info);
+    create_row_leader_comm(pg_row, pg_col, comm_info, row_leader_comm_info);
 
+    compute_block_info(row_a, col_a, block_size, block_size, pg_row, pg_col, comm_info, submat_A_info);
     block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, submat_A_info, comm_info);
-    row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info, false);
+
+#ifdef DEBUG_ELEMENT
+    MPI_Barrier(comm_info->comm);
+    for (int i = 0; i < (submat_A_info->submat_row) * (submat_A_info->submat_col); i++)
+    {
+        printf("DEBUG -> Rank (%d, %d) submat of A: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, submat_A_info->submat[i]);
+    }
+#endif
+
+    compute_row_block_info(row_b, col_b, block_size, pg_row, pg_col, comm_info, submat_B_info);
+    row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info);
+
+#ifdef DEBUG_ELEMENT
+    MPI_Barrier(comm_info->comm);
+    for (int i = 0; i < (submat_B_info->submat_row) * (submat_B_info->submat_col); i++)
+    {
+        printf("DEBUG -> Rank (%d, %d) submat of B: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, submat_B_info->submat[i]);
+    }
+#endif
 
     int submat_A_row = submat_A_info->submat_row;
     int submat_A_col = submat_A_info->submat_col;
     int submat_B_col = submat_B_info->submat_col;
-
-    // Only the process leader of the row will have the result submat
-    if (row_leader_comm_info->comm != MPI_COMM_NULL)
-    {
-        /*submat_C_info->submat = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
-        if (submat_C_info->submat == NULL)
-        {
-            printf("Error in memory allocation for matrix C submat\n");
-            exit(1);
-        }
-        memset(submat_C_info->submat, 0, submat_A_row * submat_B_col * sizeof(float));
-        submat_C_info->submat_row = submat_A_row;
-        submat_C_info->submat_col = submat_B_col;*/
-        // Block cyclic distribution of C
-        row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_col, submat_C_info, row_leader_comm_info, true);
-#ifdef DEBUG_ELEMENT
-        MPI_Barrier(row_leader_comm_info->comm);
-        for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
-        {
-            printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_C_info->submat[i], i);
-        }
-#endif
-    }
 
     // Allocate partial result submatrix
     partial_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
@@ -208,195 +212,111 @@ start=MPI_Wtime();
         exit(1);
     }
 
-#ifdef DEBUG
-    printf("Rank %d in grid (%d, %d) has %dx%d submat of A, %dx%d submat of B, %dx%d submat of C and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
+    // Only the process leader of the row will have the result submat
+    if (row_leader_comm_info->comm != MPI_COMM_NULL)
+    {
+        compute_row_block_info(row_a, col_b, block_size, 1, pg_row, row_leader_comm_info, submat_C_info);
+        row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
+        memcpy(partial_res, submat_C_info->submat, sizeof(submat_C_info->submat));
+
+#ifdef DEBUG_ELEMENT
+        MPI_Barrier(row_leader_comm_info->comm);
+        for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
+        {
+            printf("Rank %d in grid (%d, %d) has element %f of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_C_info->submat[i]);
+        }
+#endif
+    }
+
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+    if (row_leader_comm_info->comm == MPI_COMM_NULL)
+        printf("Rank %d in grid (%d, %d) belongs to row comm %d, has %dx%d submat of A, %dx%d submat of B and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_A_row, submat_B_col);
+    else
+        printf("Rank %d in grid (%d, %d) is leader of row comm %d, has %dx%d submat of A, %dx%d submat of B, %dx%d submat of C and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
 #endif
 
     // Perform multiplication of submat
-    matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col);
+    if(row_leader_comm_info->comm == MPI_COMM_NULL){
+        matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, true);
+    }
+    else{
+        matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, false);
+    }
+
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
+    for(int i=0; i<submat_A_row*submat_B_col; i++)
+    printf("Rank %d in grid (%d, %d) has element %f in pos %d of partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i], i);
+#endif
 
     // Free submat a and b
     free(submat_A_info);
     free(submat_B_info);
 
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
+    for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
+        printf("Rank %d element in pos %d before reduce = %f\n", comm_info->rank, i, partial_res[i]);
+#endif 
+
+    //Reduce reduce on row leaders
     MPI_Reduce(partial_res, submat_C_info->submat, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
+
+
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
+    if(row_leader_comm_info->comm != MPI_COMM_NULL){
+        for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
+            printf("Rank %d element in pos %d after reduce = %f\n", comm_info->rank, i, submat_C_info->submat[i]);
+    }
+#endif
 
     // Free partial result matrix
     free(partial_res);
 
     // Leader write result
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
-    {  
-        block_cyclic_write_result(mat_c_path, row_a, col_b, block_size, 1, pg_col, submat_C_info, row_leader_comm_info);
+    {
+        block_cyclic_write_result(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
     }
 
     // Free submat C
     free(submat_C_info);
 
-    if(comm_info->rank==0){
+    if (comm_info->rank == 0)
+    {
         double end = MPI_Wtime();
-        printf("AUDIT -> Measured performance:\n");
-        printf("AUDIT -> GFLOPS: %lf\n", (2.0*row_a*col_a*col_b)/(end-start)/1e9);
-        printf("AUDIT -> Elapsed %lf ms\n", (end-start)*1000);
+        printf("Measured performance:\n");
+        printf("\tGFLOPS: %lf\n", (2.0 * row_a * col_a * col_b) / (end - start) / 1e9);
+        printf("\tElapsed %lf ms\n", (end - start) * 1000);
     }
 
-    // MPI_Barrier(comm_info->comm);
-    // if(comm_info->rank == 0){
-    //     printf("\n\n\n\nRank 0 checking result...\n");
-    //     bool check=seq_check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
-    //     if(check)
-    //         printf("Result check passed\n");
-    //     else
-    //         printf("Result check failed\n");
-    // }
-    
+    MPI_Barrier(comm_info->comm);
+    if (comm_info->rank == 0)
+    {
+        check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+    }
 
     MPI_Finalize();
     return 0;
 }
 
-void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2)
+void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero)
 {
     int i, j, k;
     for (i = 0; i < r1; ++i)
     {
         for (j = 0; j < c2; ++j)
-        {   
-            res[i * c2 + j] = 0;
+        {
+            if(res_zero)
+               res[i * c2 + j] = 0;
+            
             for (k = 0; k < c1; ++k)
             {
                 res[i * c2 + j] += mat1[i * c1 + k] * mat2[k * c2 + j];
             }
         }
     }
-}
-
-bool seq_check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
-{
-    float *mat_a, *mat_b, *mat_c, *mat_c_check;
-    MPI_File mat_a_file, mat_b_file, mat_c_file, mat_c_check_file;
-    MPI_Status status;
-
-    mat_a = (float *)malloc(r1 * c1 * sizeof(float));
-    if (mat_a == NULL)
-    {
-        printf("Error in memory allocation for matrix A\n");
-        exit(1);
-    }
-
-    mat_b = (float *)malloc(c1 * c2 * sizeof(float));
-    if (mat_b == NULL)
-    {
-        printf("Error in memory allocation for matrix B\n");
-        exit(1);
-    }
-
-    mat_c = (float *)malloc(r1 * c2 * sizeof(float));
-    if (mat_c == NULL)
-    {
-        printf("Error in memory allocation for matrix C\n");
-        exit(1);
-    }
-    mat_c_check = (float *)malloc(r1 * c2 * sizeof(float));
-    if (mat_c_check == NULL)
-    {
-        printf("Error in memory allocation for matrix C check\n");
-        exit(1);
-    }
-
-
-    // Read matrix A
-    MPI_File_open(MPI_COMM_SELF, mat_a_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_a_file);
-    MPI_File_seek(mat_a_file, 2*sizeof(int), MPI_SEEK_SET);
-    MPI_File_read(mat_a_file, mat_a, r1*c1, MPI_FLOAT, &status);
-
-    // Read matrix B
-    MPI_File_open(MPI_COMM_SELF, mat_b_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_b_file);
-    MPI_File_seek(mat_b_file, 2*sizeof(int), MPI_SEEK_SET);
-    MPI_File_read(mat_b_file, mat_b, c1*c2, MPI_FLOAT, &status);
-
-    // Read matrix C
-    MPI_File_open(MPI_COMM_SELF, mat_c_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_file);
-    MPI_File_seek(mat_c_file, 2*sizeof(int), MPI_SEEK_SET);
-    MPI_File_read(mat_c_file, mat_c, r1*c2, MPI_FLOAT, &status);
-
-    // Read matrix C check
-    MPI_File_open(MPI_COMM_SELF, mat_c_path_check, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_check_file);
-    MPI_File_seek(mat_c_check_file, 2*sizeof(int), MPI_SEEK_SET);
-    MPI_File_read(mat_c_check_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
-
-//   printf("Matrix C\n");
-//     for (int i = 0; i < r1; i++)ma
-//     {
-//         for (int j = 0; j < c2; j++)
-//         {
-//             printf("%f ", mat_c[i * c2 + j]);
-//         }
-//         printf("\n");
-//     }  
-
-#ifdef DEBUG
-    printf("Matrix A\n");
-    for (int i = 0; i < r1; i++)
-    {
-        for (int j = 0; j < c1; j++)
-        {
-            printf("%f ", mat_a[i * c1 + j]);
-        }
-        printf("\n");
-    }
-
-    printf("Matrix B\n");
-    for (int i = 0; i < c1; i++)
-    {
-        for (int j = 0; j < c2; j++)
-        {
-            printf("%f ", mat_b[i * c2 + j]);
-        }
-        printf("\n");
-    }
-
-    printf("Matrix C\n");
-    for (int i = 0; i < r1; i++)
-    {
-        for (int j = 0; j < c2; j++)
-        {
-            printf("%f ", mat_c[i * c2 + j]);
-        }
-        printf("\n");
-    }
-
-    printf("Matrix C check\n");
-    for (int i = 0; i < r1; i++)
-    {
-        for (int j = 0; j < c2; j++)
-        {
-            printf("%f ", mat_c_check[i * c2 + j]);
-        }
-        printf("\n");
-    }
-#endif
-
-    int i, j, k;
-    matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2);
-    for (i = 0; i < r1; i++)
-    {
-        for (j = 0; j < c2; j++)
-        {
-            if(mat_c[i*c2+j]!=mat_c_check[i*c2+j]){
-                printf("Error in position %d %d\n", i, j);
-                //Restore matrix C for repeatability
-                MPI_File_write(mat_c_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
-                return false;
-            }
-            //printf("%f ", mat_c_check[i * c2 + j]);
-        }
-        printf("\n");
-    }
-
-    //Restore matrix C for repeatability
-    MPI_File_write(mat_c_file, mat_c_check, r1*c2, MPI_FLOAT, &status);
-    return true;
 }
 
 // Distribuzione della matrice in blocchi con metodo block cyclic
@@ -410,8 +330,6 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     int dargs[2] = {block_size, block_size};                          // Dimensione dei blocchi
     int proc_dims[2] = {pg_row, pg_col};                              // Dimensione della griglia di processi
     float *recv_block;
-
-    compute_block_info(row, col, block_size, block_size, pg_row, pg_col, comm_info, submat_info);
 
     recv_block = (float *)malloc(submat_info->submat_row * submat_info->submat_col * sizeof(float));
     if (recv_block == NULL)
@@ -429,7 +347,7 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
     MPI_Type_commit(&mat_darray);
 
 // Apertura collettiva del file
-#ifdef DEBUG
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Opening file %s\n", mat_path);
@@ -449,13 +367,6 @@ void block_cyclic_distribution(char *mat_path, int row, int col, int block_size,
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG_ELEMENT
-    MPI_Barrier(comm_info->comm);
-    for (int i = 0; i < (submat_info->submat_row) * (submat_info->submat_col); i++)
-    {
-        printf("DEBUG -> Rank (%d, %d) submat of A: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, recv_block[i]);
-    }
-#endif
     MPI_Type_free(&mat_darray);
     submat_info->submat = recv_block;
 }
@@ -500,7 +411,7 @@ void compute_block_info(int row, int col, int row_block_size, int col_block_size
     else
         num_extra_block_per_col = temp;
 
-#ifdef DEBUG
+#if DEBUG_ELEMENT
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Number of base blocks per row per process: %d\n", num_block_per_row_per_proc);
@@ -534,7 +445,7 @@ void compute_block_info(int row, int col, int row_block_size, int col_block_size
         submat_elem_per_col -= row_block_size - (rem_block_per_col);
     }
 
-#ifdef DEBUG
+#ifdef DEBUG_ELEMENT
     printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_row_per_proc);
     printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_col_per_proc);
     printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_elem_per_row);
@@ -545,13 +456,10 @@ void compute_block_info(int row, int col, int row_block_size, int col_block_size
     submat_info->num_blocks_per_col = num_block_per_col_per_proc;
     submat_info->submat_row = submat_elem_per_col;
     submat_info->submat_col = submat_elem_per_row;
-#ifdef DEBUG
-    printf("Rank %d in grid position (%d, %d) has %d x %d submat of A\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
-#endif
 }
 
 // Calcolo delle informazioni sui blocchi per ogni processo
-void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info, bool isC)
+void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info)
 {
     int submat_elem_per_row = 0, submat_elem_per_col = 0;
     int num_block_per_col_per_proc = 0;
@@ -567,7 +475,8 @@ void compute_row_block_info(int row, int col, int row_block_size, int pg_row, in
 
     temp_comm_info->rank = (comm_info->rank % pg_col); // TODO Vedere se farlo con comunicatore
     set_proc_grid_info(pg_col, temp_comm_info);
-#ifdef DEBUG
+
+#if DEBUG_ELEMENT
     printf("\nRank %d in grid position (%d, %d) treated as rank %d in grid position (%d,%d)\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, temp_comm_info->rank, temp_comm_info->pg_row_idx, temp_comm_info->pg_col_idx);
 #endif
     /*I blocchi base sono intesi in numero di griglie complete e.g una matrice 16x7 divisa in blocchi 2x2 e process grid 2x2
@@ -588,7 +497,7 @@ void compute_row_block_info(int row, int col, int row_block_size, int pg_row, in
     else
         num_extra_block_per_col = temp;
 
-#ifdef DEBUG
+#if DEBUG_ELEMENT
     if (comm_info->rank == 0)
     {
         printf("\nDEBUG -> Number of base blocks per row per process: %d\n", 1);
@@ -610,7 +519,7 @@ void compute_row_block_info(int row, int col, int row_block_size, int pg_row, in
         submat_elem_per_col -= row_block_size - (rem_block_per_col);
     }
 
-#ifdef DEBUG
+#if DEBUG_ELEMENT
     printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per row: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, 1);
     printf("DEBUG -> Rank %d pos (%d,%d) Number of blocks per col: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, num_block_per_col_per_proc);
     printf("DEBUG -> Rank %d pos (%d,%d) Submatrix row size: %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, col);
@@ -623,18 +532,14 @@ void compute_row_block_info(int row, int col, int row_block_size, int pg_row, in
     submat_info->submat_col = col; // Full row in row block distribution
 
 #ifdef DEBUG_ELEMENT
-    // TODO togliere è per debug
-    if (isC)
-        printf("Rank %d in grid position (%d, %d) has %d x %d submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
-    else
-        printf("Rank %d in grid position (%d, %d) has %d x %d submat of B\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
+    printf("Rank %d in grid position (%d, %d) has %d x %d submat\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
 #endif
 
     free(temp_comm_info);
 }
 
 // Distribuzione della matrice in blocchi di righe scon metodo block cyclic
-void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info, bool isC)
+void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info)
 {
     MPI_Status status;
     MPI_Datatype mat_darray;
@@ -644,7 +549,6 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
     int dargs[2] = {block_size, col};                                 // Dimensione dei blocchi, voglio distribuire blocchi di righe intere quindi metto la size originale delle colonne
     int proc_dims[2] = {pg_col, 1};                                   // Dimensione della griglia di processi
     float *recv_block;
-    compute_row_block_info(row, col, block_size, pg_row, pg_col, comm_info, submat_info, isC);
 
     recv_block = (float *)malloc(submat_info->submat_row * submat_info->submat_col * sizeof(float));
     if (recv_block == NULL)
@@ -652,7 +556,6 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
         printf("Error in memory allocation for recv_block in row_block_cyclic_distribution\n");
         exit(1);
     }
-    // recv_block = memset(recv_block, 0, submat_info->submat_row * submat_info->submat_col * sizeof(float));
 
     /*
     Creazione del tipo di dato per la matrice distribuita, ogni processo vedrà solo la sua porzione di matrice,
@@ -662,7 +565,7 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
     MPI_Type_commit(&mat_darray);
 
 // Apertura collettiva del file
-#ifdef DEBUG
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Opening file %s\n", mat_path);
@@ -682,13 +585,6 @@ void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_s
 
     MPI_File_close(&mat_file);
 
-#ifdef DEBUG_ELEMENT
-    MPI_Barrier(comm_info->comm);
-    for (int i = 0; i < (submat_info->submat_row) * (submat_info->submat_col); i++)
-    {
-        printf("DEBUG -> Rank (%d, %d) submat of B: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, recv_block[i]);
-    }
-#endif
     MPI_Type_free(&mat_darray);
     submat_info->submat = recv_block;
 }
@@ -699,41 +595,59 @@ void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *
     MPI_Comm row_comm;
     int row_rank, row_size;
     int color; // Ho al più pg_row colori
-    color = comm_info->pg_row_idx % pg_col;
+    color = comm_info->pg_row_idx;
     MPI_Comm_split(comm_info->comm, color, comm_info->rank, &row_comm);
     MPI_Comm_rank(row_comm, &row_rank);
     MPI_Comm_size(row_comm, &row_size);
     row_comm_info->comm = row_comm;
     row_comm_info->rank = row_rank;
     row_comm_info->size = row_size;
-#ifdef DEBUG
-    printf("Rank %d in grid (%d, %d) has color %d and row communicator rank %d and size %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, color, row_rank, row_size);
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+    printf("Rank %d in grid (%d, %d) has row color %d and row communicator rank %d and size %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, color, row_rank, row_size);
+#endif
+}
+
+// Create communicator for col of processes
+void create_col_comm(int pg_row, struct comm_info *comm_info, struct comm_info *col_comm_info)
+{
+    MPI_Comm col_comm;
+    int col_rank, col_size;
+    int color; // Ho al più pg_col colori
+    color = comm_info->pg_col_idx % pg_row;
+    MPI_Comm_split(comm_info->comm, color, comm_info->rank, &col_comm);
+    MPI_Comm_rank(col_comm, &col_rank);
+    MPI_Comm_size(col_comm, &col_size);
+    col_comm_info->comm = col_comm;
+    col_comm_info->rank = col_rank;
+    col_comm_info->size = col_size;
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+    printf("Rank %d in grid (%d, %d) has column color %d and column communicator rank %d and size %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, color, col_rank, col_size);
 #endif
 }
 
 // Create communicator for row of processes
-void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
+void create_row_leader_comm(int pg_row, int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info)
 {
-    int ranks_to_include[pg_col]; // Add only the current process
+    int ranks_to_include[pg_row];
     MPI_Group group, row_leader_group;
     MPI_Comm row_leader_comm;
     int row_leader_comm_rank, row_leader_comm_size;
+    
 
-    for (int i = 0; i <= pg_col; i++)
+    for (int i = 0; i < pg_row; i++)
     {
         ranks_to_include[i] = i * pg_col;
-        #ifdef DEBUG
-            if(comm_info->rank==0)
-                printf("Rank %d included\n", ranks_to_include[i]);
-        #endif
     }
 
     MPI_Comm_group(comm_info->comm, &group);
-    MPI_Group_incl(group, pg_col, ranks_to_include, &row_leader_group);
+    MPI_Group_incl(group, pg_row, ranks_to_include, &row_leader_group);
     MPI_Comm_create(comm_info->comm, row_leader_group, &row_leader_comm);
 
     if (row_leader_comm == MPI_COMM_NULL)
     {
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+        printf("DEBUG -> Rank %d is not a row leader\n", comm_info->rank);
+#endif
         row_leader_comm_info->comm = MPI_COMM_NULL;
         row_leader_comm_info->rank = MPI_UNDEFINED;
         return;
@@ -747,9 +661,9 @@ void create_row_leader_comm(int pg_col, struct comm_info *comm_info, struct comm
     row_leader_comm_info->pg_row_idx = comm_info->pg_col_idx;
     row_leader_comm_info->pg_col_idx = comm_info->pg_row_idx;
 
-#ifdef DEBUG
-    if (comm_info->rank != MPI_UNDEFINED)
-        printf("Rank %d in grid (%d, %d) belongs to row leader communicator of size %d with rank %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, row_leader_comm_size, row_leader_comm_rank);
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+    if (row_leader_comm_info->rank != MPI_COMM_NULL)
+        printf("DEBUG -> Rank %d in grid (%d, %d) belongs to row leader communicator of size %d with rank %d\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, row_leader_comm_size, row_leader_comm_rank);
 #endif
 }
 
@@ -771,7 +685,7 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     MPI_Type_commit(&mat_darray);
 
 // Apertura collettiva del file
-#ifdef DEBUG
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
     if (comm_info->rank == 0)
     {
         printf("DEBUG -> Opening file %s\n", mat_path);
@@ -788,11 +702,7 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     MPI_File_set_view(mat_file, 2 * sizeof(float), MPI_FLOAT, mat_darray, "native", MPI_INFO_NULL);
 
 #ifdef DEBUG_ELEMENT
-    //Print what is going to be written
-    for (int i = 0; i < submat_info->submat_row * submat_info->submat_col; i++)
-    {
-        printf("Rank %d in grid (%d, %d) has element %f in pos %d of submat of C to write\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat[i], i);
-    }
+    printf("Rank %d in grid (%d, %d) writting %d x %d submat\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_info->submat_row, submat_info->submat_col);
 #endif
 
     MPI_File_write_all(mat_file, submat_info->submat, submat_info->submat_row * submat_info->submat_col, MPI_FLOAT, &status);
@@ -800,4 +710,155 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     MPI_File_close(&mat_file);
 
     MPI_Type_free(&mat_darray);
+}
+
+void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
+{
+    float reldiff = 0.0f;
+    float diff = 0.0f;
+    float *mat_a, *mat_b, *mat_c, *mat_c_check;
+    MPI_File mat_a_file, mat_b_file, mat_c_file, mat_c_check_file;
+    MPI_Status status;
+
+    mat_a = (float *)malloc(r1 * c1 * sizeof(float));
+    if (mat_a == NULL)
+    {
+        printf("Error in memory allocation for matrix A\n");
+        exit(1);
+    }
+
+    mat_b = (float *)malloc(c1 * c2 * sizeof(float));
+    if (mat_b == NULL)
+    {
+        printf("Error in memory allocation for matrix B\n");
+        exit(1);
+    }
+
+    mat_c = (float *)malloc(r1 * c2 * sizeof(float));
+    if (mat_c == NULL)
+    {
+        printf("Error in memory allocation for matrix C\n");
+        exit(1);
+    }
+    mat_c_check = (float *)malloc(r1 * c2 * sizeof(float));
+    if (mat_c_check == NULL)
+    {
+        printf("Error in memory allocation for matrix C check\n");
+        exit(1);
+    }
+
+    // Read matrix A
+    MPI_File_open(MPI_COMM_SELF, mat_a_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_a_file);
+    MPI_File_seek(mat_a_file, 2 * sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_a_file, mat_a, r1 * c1, MPI_FLOAT, &status);
+
+    // Read matrix B
+    MPI_File_open(MPI_COMM_SELF, mat_b_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_b_file);
+    MPI_File_seek(mat_b_file, 2 * sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_b_file, mat_b, c1 * c2, MPI_FLOAT, &status);
+
+    // Read matrix C
+    MPI_File_open(MPI_COMM_SELF, mat_c_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_file);
+    MPI_File_seek(mat_c_file, 2 * sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_c_file, mat_c, r1 * c2, MPI_FLOAT, &status);
+
+    // Read matrix C check
+    MPI_File_open(MPI_COMM_SELF, mat_c_path_check, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_check_file);
+    MPI_File_seek(mat_c_check_file, 2 * sizeof(int), MPI_SEEK_SET);
+    MPI_File_read(mat_c_check_file, mat_c_check, r1 * c2, MPI_FLOAT, &status);
+
+    // Restore matrix C for repeatability before calculation
+    MPI_File_seek(mat_c_file, 2 * sizeof(int), MPI_SEEK_SET);
+    MPI_File_write(mat_c_file, mat_c_check, r1 * c2, MPI_FLOAT, &status);
+
+    // printf("Matrix C\n");
+    // for (int i = 0; i < r1; i++)
+    // {
+    //     for (int j = 0; j < c2; j++)
+    //     {
+    //         printf("%f ", mat_c[i * c2 + j]);
+    //     }
+    //     printf("\n");
+    // }
+
+#ifdef DEBUG_ELEMENT
+    printf("Matrix A\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c1; j++)
+        {
+            printf("%f ", mat_a[i * c1 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("\nMatrix B\n");
+    for (int i = 0; i < c1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_b[i * c2 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("\nMatrix C\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_c[i * c2 + j]);
+        }
+        printf("\n");
+    }
+
+    printf("\nMatrix C check\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_c_check[i * c2 + j]);
+        }
+        printf("\n");
+    }
+#endif
+
+    int i, j, k;
+    matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2, false);
+#ifdef DEBUG_ELEMENT
+    printf("\nMatrix C check after computation\n");
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("%f ", mat_c_check[i * c2 + j]);
+        }
+        printf("\n");
+    }
+#endif
+    int max_diff_i = -1;
+    int max_diff_j = -1;
+    for (int i = 0; i < r1; i++)
+    {
+        for (int j = 0; j < c2; j++)
+        {
+            printf("Mat_c_check[%d][%d] = %f\t", i, j, mat_c_check[i * c2 + j]);
+            printf("Mat_c[%d][%d] = %f\n", i, j, mat_c[i * c2 + j]);
+            float maxabs = std::max(std::abs(mat_c_check[i * c2 + j]), std::abs(mat_c[i * c2 + j]));
+            if (maxabs == 0.0)
+                maxabs = 1.0;
+            reldiff = std::max(reldiff, std::abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]) / maxabs);
+            diff = std::max(diff, std::abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]));
+            max_diff_i = i;
+            max_diff_j = j;
+        }
+    }
+    std::cout << "\tMax diff = " << diff << "\n\tMax rel diff = " << reldiff << std::endl;
+    if ((i != -1) && (j != -1))
+        printf("\tElement (%d,%d) caused maxdiff\n\tC[%d][%d] = %f\n\tC_check[%d][%d] = %f\n", max_diff_i, max_diff_j, max_diff_i, max_diff_j, mat_c[max_diff_i * c2 + max_diff_j], max_diff_i, max_diff_j, mat_c_check[max_diff_i * c2 + max_diff_j]);
+    
+    /*
+    Rel diff should be as close as possible to unit roundoff;
+    float corresponds to IEEE single precision, so unit roundoff is 1.19e-07
+   */
 }

@@ -3,13 +3,13 @@ default: build
 build:
 	gcc -c util/utils.c -o util/utils.o
 	ar rcs libmy_lib.a util/utils.o
-	mpicc mat_mul.c -O3 -L. -lmy_lib
+	mpic++ mat_mul.cpp -O3 -L. -lmy_lib
 
 debug:
-	mpicc -DDEBUG mat_mul.c -O3 
+	mpic++ -DDEBUG mat_mul.cpp -O3 
 
 debug_el:
-	mpicc -DDEBUG_ELEMENT mat_mul.c -O3 
+	mpic++ -DDEBUG_ELEMENT mat_mul.cpp -O3 
 
 #pgr and pgc are process grid number of rows and columns
 run:
