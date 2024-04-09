@@ -217,15 +217,15 @@ int main(int argc, char *argv[])
     {
         compute_row_block_info(row_a, col_b, block_size, 1, pg_row, row_leader_comm_info, submat_C_info);
         row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
-        memcpy(partial_res, submat_C_info->submat, sizeof(submat_C_info->submat));
+        memcpy(partial_res, submat_C_info->submat, submat_C_info->submat_row * submat_C_info->submat_col * sizeof(float));
 
-#ifdef DEBUG_ELEMENT
+//#ifdef DEBUG_ELEMENT
         MPI_Barrier(row_leader_comm_info->comm);
         for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
         {
-            printf("Rank %d in grid (%d, %d) has element %f of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, submat_C_info->submat[i]);
+            printf("Rank %d in grid (%d, %d) has element %f of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i]);
         }
-#endif
+//#endif
     }
 
 #if defined(DEBUG) || defined(DEBUG_ELEMENT)
@@ -240,14 +240,9 @@ int main(int argc, char *argv[])
         matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, true);
     }
     else{
+        printf("Rank %d in grid (%d, %d) multiply with non zero\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
         matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, false);
     }
-
-#ifdef DEBUG_ELEMEN
-    MPI_Barrier(comm_info->comm);
-    for(int i=0; i<submat_A_row*submat_B_col; i++)
-    printf("Rank %d in grid (%d, %d) has element %f in pos %d of partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i], i);
-#endif
 
     // Free submat a and b
     free(submat_A_info);
@@ -304,14 +299,14 @@ int main(int argc, char *argv[])
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero)
 {
     int i, j, k;
-    for (i = 0; i < r1; ++i)
+    for (i = 0; i < r1; ++i)//N
     {
-        for (j = 0; j < c2; ++j)
+        for (j = 0; j < c2; ++j)//M
         {
             if(res_zero)
                res[i * c2 + j] = 0;
             
-            for (k = 0; k < c1; ++k)
+            for (k = 0; k < c1; ++k)//K
             {
                 res[i * c2 + j] += mat1[i * c1 + k] * mat2[k * c2 + j];
             }
@@ -843,7 +838,8 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
         for (int j = 0; j < c2; j++)
         {
             printf("Mat_c_check[%d][%d] = %f\t", i, j, mat_c_check[i * c2 + j]);
-            printf("Mat_c[%d][%d] = %f\n", i, j, mat_c[i * c2 + j]);
+            printf("Mat_c[%d][%d] = %f\t", i, j, mat_c[i * c2 + j]);
+            printf("Diff = %f\n", abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]));
             float maxabs = std::max(std::abs(mat_c_check[i * c2 + j]), std::abs(mat_c[i * c2 + j]));
             if (maxabs == 0.0)
                 maxabs = 1.0;

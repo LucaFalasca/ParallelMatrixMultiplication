@@ -3,8 +3,8 @@
 #include<stdio.h>
 #include<string.h>
 
-#define MIND 200.0
-#define MAXD -200.0
+#define MIND 0.0
+#define MAXD 100.0
 
 /* Generate a random floating point number from min to max */
 float rand_from(float min, float max){
