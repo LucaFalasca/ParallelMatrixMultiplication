@@ -243,7 +243,8 @@ int main(int argc, char *argv[])
         matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, false);
     }
 
-#ifdef DEBUG_ELEMENT
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
     for(int i=0; i<submat_A_row*submat_B_col; i++)
     printf("Rank %d in grid (%d, %d) has element %f in pos %d of partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i], i);
 #endif
@@ -251,21 +252,22 @@ int main(int argc, char *argv[])
     // Free submat a and b
     free(submat_A_info);
     free(submat_B_info);
-    //TODO Misa che non vengono sommati i partial_res a submat ma solo i partial_res tra di loro e copiati in submat
-#ifdef DEBUG_ELEMENT
-    if(row_leader_comm_info->comm != MPI_COMM_NULL){
-        for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
-            printf("Rank %d element in pos %d before reduce = %f\n", comm_info->rank, i, submat_C_info->submat[i]);
-    }
-#endif
-    float *res=(float *)malloc(submat_A_row * submat_B_col * sizeof(float)); 
-    //TODO La reduce non funziona, in teoria tutti i pezzi prima della reduce sono corretti
-    MPI_Reduce(partial_res, res, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
+
 #ifdef DEBUG_ELEMEN
-    MPI_Barrier(row_comm_info->comm);
+    MPI_Barrier(comm_info->comm);
+    for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
+        printf("Rank %d element in pos %d before reduce = %f\n", comm_info->rank, i, partial_res[i]);
+#endif 
+
+    //Reduce reduce on row leaders
+    MPI_Reduce(partial_res, submat_C_info->submat, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
+
+
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
     if(row_leader_comm_info->comm != MPI_COMM_NULL){
         for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
-            printf("Rank %d element in pos %d after reduce = %f\n", comm_info->rank, i, res[i]);
+            printf("Rank %d element in pos %d after reduce = %f\n", comm_info->rank, i, submat_C_info->submat[i]);
     }
 #endif
 
@@ -593,7 +595,7 @@ void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *
     MPI_Comm row_comm;
     int row_rank, row_size;
     int color; // Ho al più pg_row colori
-    color = comm_info->pg_row_idx % pg_col;
+    color = comm_info->pg_row_idx;
     MPI_Comm_split(comm_info->comm, color, comm_info->rank, &row_comm);
     MPI_Comm_rank(row_comm, &row_rank);
     MPI_Comm_size(row_comm, &row_size);
@@ -630,6 +632,7 @@ void create_row_leader_comm(int pg_row, int pg_col, struct comm_info *comm_info,
     MPI_Group group, row_leader_group;
     MPI_Comm row_leader_comm;
     int row_leader_comm_rank, row_leader_comm_size;
+    
 
     for (int i = 0; i < pg_row; i++)
     {
@@ -839,6 +842,8 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
     {
         for (int j = 0; j < c2; j++)
         {
+            printf("Mat_c_check[%d][%d] = %f\t", i, j, mat_c_check[i * c2 + j]);
+            printf("Mat_c[%d][%d] = %f\n", i, j, mat_c[i * c2 + j]);
             float maxabs = std::max(std::abs(mat_c_check[i * c2 + j]), std::abs(mat_c[i * c2 + j]));
             if (maxabs == 0.0)
                 maxabs = 1.0;
@@ -846,12 +851,12 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
             diff = std::max(diff, std::abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]));
             max_diff_i = i;
             max_diff_j = j;
-            // std::cout << row<<" "<<h_y[row]<<" "<<h_y_d[row] <<std::endl;
         }
     }
     std::cout << "\tMax diff = " << diff << "\n\tMax rel diff = " << reldiff << std::endl;
     if ((i != -1) && (j != -1))
         printf("\tElement (%d,%d) caused maxdiff\n\tC[%d][%d] = %f\n\tC_check[%d][%d] = %f\n", max_diff_i, max_diff_j, max_diff_i, max_diff_j, mat_c[max_diff_i * c2 + max_diff_j], max_diff_i, max_diff_j, mat_c_check[max_diff_i * c2 + max_diff_j]);
+    
     /*
     Rel diff should be as close as possible to unit roundoff;
     float corresponds to IEEE single precision, so unit roundoff is 1.19e-07

@@ -88,8 +88,11 @@ int main(int argc, char *argv[]){
         mat1 = generate_matrix(r1, c1);
         mat2 = generate_matrix(r2, c2);
     }
+
     if((!isZero)&&(!isDummy))
         mat3 = generate_matrix(r1, c2);
+    else if(isDummy)
+        generate_dummy_matrix(r1, c2, 1.0);
     else
         generate_dummy_matrix(r1, c2, 0.0);
     
