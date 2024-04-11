@@ -219,13 +219,13 @@ int main(int argc, char *argv[])
         row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
         memcpy(partial_res, submat_C_info->submat, submat_C_info->submat_row * submat_C_info->submat_col * sizeof(float));
 
-//#ifdef DEBUG_ELEMENT
+#ifdef DEBUG_ELEMENT
         MPI_Barrier(row_leader_comm_info->comm);
         for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
         {
             printf("Rank %d in grid (%d, %d) has element %f of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i]);
         }
-//#endif
+#endif
     }
 
 #if defined(DEBUG) || defined(DEBUG_ELEMENT)
@@ -240,7 +240,6 @@ int main(int argc, char *argv[])
         matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, true);
     }
     else{
-        printf("Rank %d in grid (%d, %d) multiply with non zero\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
         matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col, false);
     }
 
@@ -753,7 +752,7 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
     MPI_File_read(mat_b_file, mat_b, c1 * c2, MPI_FLOAT, &status);
 
     // Read matrix C
-    MPI_File_open(MPI_COMM_SELF, mat_c_path, MPI_MODE_RDONLY, MPI_INFO_NULL, &mat_c_file);
+    MPI_File_open(MPI_COMM_SELF, mat_c_path, MPI_MODE_RDWR, MPI_INFO_NULL, &mat_c_file);
     MPI_File_seek(mat_c_file, 2 * sizeof(int), MPI_SEEK_SET);
     MPI_File_read(mat_c_file, mat_c, r1 * c2, MPI_FLOAT, &status);
 
@@ -765,16 +764,6 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
     // Restore matrix C for repeatability before calculation
     MPI_File_seek(mat_c_file, 2 * sizeof(int), MPI_SEEK_SET);
     MPI_File_write(mat_c_file, mat_c_check, r1 * c2, MPI_FLOAT, &status);
-
-    // printf("Matrix C\n");
-    // for (int i = 0; i < r1; i++)
-    // {
-    //     for (int j = 0; j < c2; j++)
-    //     {
-    //         printf("%f ", mat_c[i * c2 + j]);
-    //     }
-    //     printf("\n");
-    // }
 
 #ifdef DEBUG_ELEMENT
     printf("Matrix A\n");
@@ -837,9 +826,9 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
     {
         for (int j = 0; j < c2; j++)
         {
-            printf("Mat_c_check[%d][%d] = %f\t", i, j, mat_c_check[i * c2 + j]);
-            printf("Mat_c[%d][%d] = %f\t", i, j, mat_c[i * c2 + j]);
-            printf("Diff = %f\n", abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]));
+            //printf("Mat_c_check[%d][%d] = %f\t", i, j, mat_c_check[i * c2 + j]);
+            //printf("Mat_c[%d][%d] = %f\t", i, j, mat_c[i * c2 + j]);
+            //printf("Diff = %f\n", abs(mat_c_check[i * c2 + j] - mat_c[i * c2 + j]));
             float maxabs = std::max(std::abs(mat_c_check[i * c2 + j]), std::abs(mat_c[i * c2 + j]));
             if (maxabs == 0.0)
                 maxabs = 1.0;
@@ -850,11 +839,7 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
         }
     }
     std::cout << "\tMax diff = " << diff << "\n\tMax rel diff = " << reldiff << std::endl;
-    if ((i != -1) && (j != -1))
+    /*if ((i != -1) && (j != -1))
         printf("\tElement (%d,%d) caused maxdiff\n\tC[%d][%d] = %f\n\tC_check[%d][%d] = %f\n", max_diff_i, max_diff_j, max_diff_i, max_diff_j, mat_c[max_diff_i * c2 + max_diff_j], max_diff_i, max_diff_j, mat_c_check[max_diff_i * c2 + max_diff_j]);
-    
-    /*
-    Rel diff should be as close as possible to unit roundoff;
-    float corresponds to IEEE single precision, so unit roundoff is 1.19e-07
-   */
+    */
 }
