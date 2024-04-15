@@ -10,6 +10,9 @@ debug:
 	ar rcs libmy_lib.a mat_generator.o 
 	gcc main.c -DDEBUG -O3 -L. -lmy_lib -o main
 
+clean:
+	rm -f *.o *.a *.out
+
 run:
 	./main ${name1} ${row1} ${col1} ${name2} ${row2} ${col2} {name3} ${isZero} ${isDummy}
 
