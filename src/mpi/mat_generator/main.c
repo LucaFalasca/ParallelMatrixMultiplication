@@ -2,8 +2,8 @@
 #include<stdio.h>
 #include<string.h>
 #include"mat_generator.h"
-#include"../util/utils.h"
 
+void printMatrix(float *mat, int row, int col);
 
 int main(int argc, char *argv[]){
     int r1, c1, r2, c2, isZero, isDummy;
@@ -114,4 +114,14 @@ int main(int argc, char *argv[]){
 
     printf("Writing matrix 3 to %s\n", mat3_path_bin_check);
     write_matrix(mat3, r1, c2, NULL, mat3_path_bin_check);
+}
+
+void printMatrix(float *mat, int row, int col) {
+    printf("Matrix:\n");
+    for (int i = 0; i < row; i++) {
+        for (int j = 0; j < col; j++) {
+            printf("%f ", mat[i*col+j]);
+        }
+        printf("\n");
+    }
 }

@@ -1,15 +1,13 @@
 default: build
 
 build:
-	gcc -c ../util/utils.c -o ../util/utils.o
 	gcc -c mat_generator.c -o mat_generator.o
-	ar rcs libmy_lib.a ../util/utils.o mat_generator.o 
+	ar rcs libmy_lib.a mat_generator.o 
 	gcc main.c -O3 -L. -lmy_lib -o main
 
 debug:
-	gcc -c ../util/utils.c -o ../util/utils.o
 	gcc -c mat_generator.c -o mat_generator.o
-	ar rcs libmy_lib.a ../util/utils.o mat_generator.o 
+	ar rcs libmy_lib.a mat_generator.o 
 	gcc main.c -DDEBUG -O3 -L. -lmy_lib -o main
 
 run:

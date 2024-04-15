@@ -1,9 +1,9 @@
 default: build
 
 build:
-	gcc -c util/utils.c -o util/utils.o
-	ar rcs libmy_lib.a util/utils.o
-	mpic++ mat_mul.cpp -O3 -L. -lmy_lib
+	mpic++ -c mat_mul.cpp -o mat_mul.o -O3
+	ar rcs libmy_lib.a mat_mul.o
+	mpic++ main.cpp -O3 -L. -lmy_lib
 
 debug:
 	mpic++ -DDEBUG mat_mul.cpp -O3 

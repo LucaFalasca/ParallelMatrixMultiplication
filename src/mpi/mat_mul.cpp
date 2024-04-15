@@ -5,58 +5,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
-#include "util/utils.h"
-#define BLOCK_ROWS 2
-#define BLOCK_COLS 2
-#define RSRC 0
-#define CSRC 0
+#include "mat_mul.h"
 
-struct block_info
+
+void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check)
 {
-    int num_row;        // Number of rows in the block
-    int num_col;        // Number of columns in the block
-    int row_start_gidx; // Global index of the first row in the block
-    int col_start_gidx; // Global index of the first column in the block
-} block_info;
-
-struct submat_info
-{
-    float *submat;                      // Pointer to the submat for this process
-    int num_blocks_per_row;             // Number of blocks per row for this process
-    int num_blocks_per_col;             // Number of blocks per column for this process
-    int submat_row;                     // Number of rows of the submat for this process (aggregation of the blocks)
-    int submat_col;                     // Number of columns of the submat for this process (aggregation of the blocks)
-    struct block_info **ist_block_info; // Array of block info for this process blocks
-} submat_info;
-
-struct comm_info
-{
-    MPI_Comm comm;  // MPI communicator
-    int rank;       // Rank of the process in the communicator
-    int size;       // Number of processes in the communicator
-    int pg_row_idx; // Process row index in the process grid
-    int pg_col_idx; // Process column index in the process grid
-} comm_info;
-
-void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero);
-void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
-void set_proc_grid_info(int pg_col, struct comm_info *comm_info);
-void compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
-void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
-void block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
-void row_block_cyclic_distribution(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
-void create_row_comm(int pg_col, struct comm_info *comm_info, struct comm_info *row_comm_info);
-void create_col_comm(int pg_row, struct comm_info *comm_info, struct comm_info *col_comm_info);
-void create_row_leader_comm(int pg_row, int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
-void block_cyclic_write_result(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
-
-int main(int argc, char *argv[])
-{
-    MPI_Init(&argc, &argv);
-    int row_a, col_a, row_b, col_b, pg_row, pg_col, block_size;
     float *partial_res;
-    double start;
-    char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128];
     struct submat_info *submat_A_info, *submat_B_info, *submat_C_info;
     struct comm_info *comm_info, *row_comm_info, *col_comm_info, *row_leader_comm_info;
 
@@ -109,17 +63,6 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &(comm_info->rank));
     MPI_Comm_size(MPI_COMM_WORLD, &(comm_info->size));
 
-    /*Get parameters from cmd*/
-    if (argc < 12)
-    {
-        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check\n");
-        exit(1);
-    }
-
-    // Process grid size
-    pg_row = atoi(argv[1]);
-    pg_col = atoi(argv[2]);
-
     /*Check size compatibility for process grid*/
     if ((pg_row * pg_col) != comm_info->size)
     {
@@ -127,30 +70,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // Block size
-    block_size = atoi(argv[3]);
-
-    // Matrix A data
-    strcpy(mat_a_path, argv[4]);
-    row_a = atoi(argv[5]);
-    col_a = atoi(argv[6]);
-
-    // Matrix B data
-    strcpy(mat_b_path, argv[7]);
-    row_b = atoi(argv[8]);
-    col_b = atoi(argv[9]);
-
-    // Matric C data
-    strcpy(mat_c_path, argv[10]);
-    strcpy(mat_c_path_check, argv[11]);
-
-    /*Check size compatibility for matrix multiply*/
-    if (col_a != row_b)
-    {
-        printf("Incompatible matrix size for multiplication c1!=r2\n");
-        exit(1);
-    }
-
+#ifdef AUDIT
     if (comm_info->rank == 0)
     {
         printf("AUDIT -> Number of processes: %d\n", comm_info->size);
@@ -161,8 +81,7 @@ int main(int argc, char *argv[])
         printf("AUDIT -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
         printf("AUDIT -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
     }
-
-    start = MPI_Wtime();
+#endif
 
     // Each process calculates its position in the process grid
     set_proc_grid_info(pg_col, comm_info);
@@ -277,22 +196,13 @@ int main(int argc, char *argv[])
     // Free submat C
     free(submat_C_info);
 
-    if (comm_info->rank == 0)
-    {
-        double end = MPI_Wtime();
-        printf("Measured performance:\n");
-        printf("\tGFLOPS: %lf\n", (2.0 * row_a * col_a * col_b) / (end - start) / 1e9);
-        printf("\tElapsed %lf ms\n", (end - start) * 1000);
-    }
-
+#ifdef CHECK_RESULT
     MPI_Barrier(comm_info->comm);
     if (comm_info->rank == 0)
     {
         check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
     }
-
-    MPI_Finalize();
-    return 0;
+#endif
 }
 
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero)
