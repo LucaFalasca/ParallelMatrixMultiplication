@@ -47,28 +47,28 @@ float *generate_dummy_matrix(int row, int col, float value){
 void write_matrix(float *mat, int rows, int cols, char *matpath_txt, char *matpath_bin){
     FILE *f_txt;
     FILE *f_binary;
-    if(matpath_txt!=NULL)
-        f_txt = fopen(matpath_txt, "w"); 
+    /*if(matpath_txt!=NULL)
+        f_txt = fopen(matpath_txt, "w");*/ 
     f_binary = fopen(matpath_bin, "w+");
 
-    if(f_txt==NULL){
+    /*if(f_txt==NULL){
         printf("Error in opening file %s for writing\n", matpath_txt);
         exit(1);
-    }
+    }*/
     if(f_binary==NULL){
         printf("Error in opening file %s for writing\n", matpath_bin);
         exit(1);
     }
 
     //Write txt file
-    if(matpath_txt!=NULL){
+    /*if(matpath_txt!=NULL){
         for(int i=0; i<rows; i++){
             for(int j=0; j<cols; j++){
                 fprintf(f_txt, "%f ", mat[i*cols+j]);
             }
             fprintf(f_txt, "\n");
         }
-    }
+    }*/
 
     // Write rows number as first element of the binary file
     if(fwrite(&rows, sizeof(int), 1, f_binary)==0){
@@ -86,7 +86,7 @@ void write_matrix(float *mat, int rows, int cols, char *matpath_txt, char *matpa
         exit(1);
     }
 
-    if(matpath_txt!=NULL)
-        fclose(f_txt);
+    /*if(matpath_txt!=NULL)
+        fclose(f_txt);*/
     fclose(f_binary);
 }

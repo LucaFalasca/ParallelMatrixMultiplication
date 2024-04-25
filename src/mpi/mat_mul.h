@@ -26,7 +26,7 @@ typedef struct comm_info
 } comm_info;
 
 extern void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero);
-extern void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
+extern float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
 void set_proc_grid_info(int pg_col, struct comm_info *comm_info);
 void compute_block_info(int row, int col, int row_block_size, int col_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);
 void compute_row_block_info(int row, int col, int row_block_size, int pg_row, int pg_col, struct comm_info *comm_info, struct submat_info *submat_info);

@@ -4,6 +4,9 @@
 #include <string.h>
 #include <stdbool.h>
 #include "mat_mul.h"
+#include <iostream>
+
+void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff);
 
 int main(int argc, char *argv[])
 {
@@ -60,12 +63,49 @@ int main(int argc, char *argv[])
 
     if(rank==0){
         double end = MPI_Wtime();
-        printf("Measured performance:\n");
-        printf("\tGFLOPS: %lf\n", (2.0 * row_a * col_a * col_b) / (end - start) / 1e9);
-        printf("\tElapsed %lf ms\n", (end - start) * 1000);
+        double gflops = ((2.0 * row_a * col_a * col_b) / (end - start)) / 1e9;
+        double elapsed_time = (end - start) * 1000;
+        //printf("Checking result...\n");
+        //float *err=check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+        std::cout << "Measured performance:" << std::endl;
+        std::cout << "\tGFLOPS: " << gflops << std::endl;
+        std::cout << "\tElapsed " << elapsed_time <<"ms" << std::endl;
+        //std::cout << "\tMax diff: " << err[0] << std::endl;
+        //std::cout << "\tMax relative diff: "<< err[1] << std::endl;
+        //std::cout << "Writing data on csv..." << std::endl;
+        write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, 0.0f, 0.0f);
     }
     
 
     MPI_Finalize();
     return 0;
+}
+
+void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff) {
+    FILE *fp;
+    bool file_exists = false;
+    fp = fopen("data/out/results.csv", "a+"); // "a+" mode opens for reading and appending
+
+    if (fp == NULL) {
+        printf("Error opening file!\n");
+        return;
+    }
+
+    // Check if file is empty
+    fseek(fp, 0, SEEK_END);
+    if (ftell(fp) == 0) {
+        file_exists = false;
+    } else {
+        file_exists = true;
+    }
+
+    // Write header if file doesn't exist
+    if (!file_exists) {
+        fprintf(fp, "num_proc, num_proc_row, num_proc_col, block_size, mat_A_rows, mat_A_cols, mat_B_rows, mat_B_cols, gflops, elapsed_time, max_diff, max_rel_diff\n");
+    }
+
+    fprintf(fp, "%d, %d, %d, %d, %d, %d, %d, %d, %lf, %lf, %f, %e\n", 
+            num_procs, pr, pc, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, max_diff, max_rel_diff);
+
+    fclose(fp);
 }

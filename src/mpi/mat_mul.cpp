@@ -200,6 +200,7 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
     MPI_Barrier(comm_info->comm);
     if (comm_info->rank == 0)
     {
+        printf("Rank 0 checking result...\n");
         check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
     }
 #endif
@@ -616,13 +617,20 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     MPI_Type_free(&mat_darray);
 }
 
-void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
+float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
 {
     float reldiff = 0.0f;
     float diff = 0.0f;
     float *mat_a, *mat_b, *mat_c, *mat_c_check;
+    float *res;
     MPI_File mat_a_file, mat_b_file, mat_c_file, mat_c_check_file;
     MPI_Status status;
+
+    res=(float *)malloc(2*sizeof(float));
+    if(res == NULL){
+        printf("Error in memory allocation for res in check_result\n");
+        exit(1);
+    }
 
     mat_a = (float *)malloc(r1 * c1 * sizeof(float));
     if (mat_a == NULL)
@@ -752,4 +760,7 @@ void check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[12
     /*if ((i != -1) && (j != -1))
         printf("\tElement (%d,%d) caused maxdiff\n\tC[%d][%d] = %f\n\tC_check[%d][%d] = %f\n", max_diff_i, max_diff_j, max_diff_i, max_diff_j, mat_c[max_diff_i * c2 + max_diff_j], max_diff_i, max_diff_j, mat_c_check[max_diff_i * c2 + max_diff_j]);
     */
+    res[0] = diff;
+    res[1] = reldiff;
+    return res;
 }

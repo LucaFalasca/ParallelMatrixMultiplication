@@ -1,24 +1,29 @@
 default: build
 
 build:
-	mpic++ -c mat_mul.cpp -o mat_mul.o -O3
+	mpic++ -c mat_mul.cpp -o mat_mul.o
 	ar rcs libmy_lib.a mat_mul.o
-	mpic++ main.cpp -O3 -L. -lmy_lib
+	mpic++ main.cpp -L. -lmy_lib
 
 debug:
-	mpic++ -c mat_mul.cpp -o mat_mul.o -O3
+	mpic++ -c mat_mul.cpp -o mat_mul.o -DDEBUG
 	ar rcs libmy_lib.a mat_mul.o
-	mpic++ main.cpp -O3 -L. -lmy_lib -DDEBUG
+	mpic++ main.cpp -L. -lmy_lib
 
 debug_el:
-	mpic++ -c mat_mul.cpp -o mat_mul.o -O3
+	mpic++ -c mat_mul.cpp -o mat_mul.o -DDEBUG_ELEMENT
 	ar rcs libmy_lib.a mat_mul.o
-	mpic++ main.cpp -O3 -L. -lmy_lib -DDEBUG_ELEMENT
+	mpic++ main.cpp -L. -lmy_lib
 
 audit:
-	mpic++ -c mat_mul.cpp -o mat_mul.o -O3
+	mpic++ -c mat_mul.cpp -o mat_mul.o -DAUDIT
 	ar rcs libmy_lib.a mat_mul.o
-	mpic++ main.cpp -O3 -L. -lmy_lib -DAUDIT
+	mpic++ main.cpp -L. -lmy_lib 
+
+check:
+	mpic++ -c mat_mul.cpp -o mat_mul.o -DCHECK_RESULT
+	ar rcs libmy_lib.a mat_mul.o
+	mpic++ main.cpp -L. -lmy_lib 
 
 clean:
 	rm -f *.o *.a *.out
