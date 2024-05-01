@@ -65,15 +65,22 @@ int main(int argc, char *argv[])
         double end = MPI_Wtime();
         double gflops = ((2.0 * row_a * col_a * col_b) / (end - start)) / 1e9;
         double elapsed_time = (end - start) * 1000;
-        //printf("Checking result...\n");
-        //float *err=check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+        
+        printf("Checking result...\n");
+        //float err[2] = {0.0, 0.0};
+        float *err=check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+        
         std::cout << "Measured performance:" << std::endl;
         std::cout << "\tGFLOPS: " << gflops << std::endl;
         std::cout << "\tElapsed " << elapsed_time <<"ms" << std::endl;
-        //std::cout << "\tMax diff: " << err[0] << std::endl;
-        //std::cout << "\tMax relative diff: "<< err[1] << std::endl;
-        //std::cout << "Writing data on csv..." << std::endl;
-        write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, 0.0f, 0.0f);
+        std::cout << "\tMax diff: " << err[0] << std::endl;
+        std::cout << "\tMax relative diff: "<< err[1] << std::endl;
+
+        std::cout << "Writing data on csv..." << std::endl;
+        write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, err[0], err[1]);
+        
+        std::cout << "Resetting matrix C..." << std::endl;
+        reset_matrix_c(mat_c_path, mat_c_path_check);
     }
     
 

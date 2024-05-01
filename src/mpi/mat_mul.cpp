@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include "mat_mul.h"
+#include <cstdlib>
 
 
 void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check)
@@ -617,6 +618,13 @@ void block_cyclic_write_result(char *mat_path, int row, int col, int block_size,
     MPI_Type_free(&mat_darray);
 }
 
+void reset_matrix_c(char mat_c_path[128], char mat_c_path_check[128]){
+    std::string c_path=mat_c_path;
+    std::string c_path_check=mat_c_path_check;
+    std::string cmd = "cp " + c_path_check + " " + c_path;
+    system(cmd.c_str());
+}
+
 float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2)
 {
     float reldiff = 0.0f;
@@ -679,9 +687,8 @@ float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[
     MPI_File_seek(mat_c_check_file, 2 * sizeof(int), MPI_SEEK_SET);
     MPI_File_read(mat_c_check_file, mat_c_check, r1 * c2, MPI_FLOAT, &status);
 
-    // Restore matrix C for repeatability before calculation
-    MPI_File_seek(mat_c_file, 2 * sizeof(int), MPI_SEEK_SET);
-    MPI_File_write(mat_c_file, mat_c_check, r1 * c2, MPI_FLOAT, &status);
+    // Reset matrix C for repeatability before calculation
+    reset_matrix_c(mat_c_path, mat_c_path_check);
 
 #ifdef DEBUG_ELEMENT
     printf("Matrix A\n");
