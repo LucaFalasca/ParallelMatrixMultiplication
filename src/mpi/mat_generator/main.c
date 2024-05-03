@@ -106,14 +106,20 @@ int main(int argc, char *argv[]){
     printf("Writing matrix 1 to %s and %s\n", mat1path_txt, mat1path_bin);
     write_matrix(mat1, r1, c1, mat1path_txt, mat1path_bin);
 
+    free(mat1);
+
     printf("Writing matrix 2 to %s and %s\n", mat2path_txt, mat2path_bin);
     write_matrix(mat2, r2, c2, mat2path_txt, mat2path_bin);
+
+    free(mat2);
 
     printf("Writing matrix 3 to %s and %s\n", mat3_path_txt, mat3_path_bin);
     write_matrix(mat3, r1, c2, mat3_path_txt, mat3_path_bin);
 
     printf("Writing matrix 3 to %s\n", mat3_path_bin_check);
     write_matrix(mat3, r1, c2, NULL, mat3_path_bin_check);
+
+    free(mat3);
 }
 
 void printMatrix(float *mat, int row, int col) {
