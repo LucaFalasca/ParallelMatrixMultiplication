@@ -1,3 +1,0 @@
-num_proc, num_proc_row, num_proc_col, block_size, mat_A_rows, mat_A_cols, mat_B_rows, mat_B_cols, gflops, elapsed_time, max_diff, max_rel_diff
-20, 5, 4, 32, 4096, 4096, 4096, 4096, 2.203480, 62373.583517, 0.000000, 0.000000e+00
-20, 5, 4, 32, 10000, 10000, 10000, 10000, 18.774397, 106528.057243, 0.000000, 0.000000e+00
