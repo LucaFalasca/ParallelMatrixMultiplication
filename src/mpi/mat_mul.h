@@ -25,6 +25,7 @@ typedef struct comm_info
     int pg_col_idx; // Process column index in the process grid
 } comm_info;
 
+extern void column_blocked_matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2);
 extern void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero);
 extern float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[128], char mat_c_path_check[128], int r1, int c1, int c2);
 extern void reset_matrix_c(char mat_c_path[128], char mat_c_check_path[128]);
@@ -38,3 +39,4 @@ void create_col_comm(int pg_row, struct comm_info *comm_info, struct comm_info *
 void create_row_leader_comm(int pg_row, int pg_col, struct comm_info *comm_info, struct comm_info *row_leader_comm_info);
 void block_cyclic_write_result(char *mat_path, int row, int col, int block_size, int pg_row, int pg_col, struct submat_info *submat_info, struct comm_info *comm_info);
 extern void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check);
+extern void parallel_matrix_multiplication_blocked(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check);

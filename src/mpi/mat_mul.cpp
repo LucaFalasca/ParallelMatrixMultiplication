@@ -8,7 +8,6 @@
 #include "mat_mul.h"
 #include <cstdlib>
 
-
 void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check)
 {
     float *partial_res;
@@ -125,7 +124,8 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
     int submat_B_col = submat_B_info->submat_col;
 
     // Allocate partial result submatrix
-    partial_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
+    //partial_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
+    partial_res = (float *)malloc(submat_A_row * submat_B_col*sizeof(float));
     if (partial_res == NULL)
     {
         printf("Error in memory allocation for partial matrix result\n");
@@ -205,6 +205,226 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
         check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
     }
 #endif
+}
+
+
+void parallel_matrix_multiplication_blocked(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check)
+{
+    float *partial_res;
+    struct submat_info *submat_A_info, *submat_B_info, *submat_C_info;
+    struct comm_info *comm_info, *row_comm_info, *col_comm_info, *row_leader_comm_info;
+
+    submat_A_info = (struct submat_info *)malloc(sizeof(struct submat_info));
+    if (submat_A_info == NULL)
+    {
+        printf("Error in memory allocation for submat_A_info\n");
+        exit(1);
+    }
+    submat_B_info = (struct submat_info *)malloc(sizeof(struct submat_info));
+    if (submat_B_info == NULL)
+    {
+        printf("Error in memory allocation for submat_B_info\n");
+        exit(1);
+    }
+
+    submat_C_info = (struct submat_info *)malloc(sizeof(struct submat_info));
+    if (submat_C_info == NULL)
+    {
+        printf("Error in memory allocation for matrix C submat\n");
+        exit(1);
+    }
+    memset(submat_C_info, 0, sizeof(struct submat_info));
+
+    comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
+    if (comm_info == NULL)
+    {
+        printf("Error in memory allocation for comm_info\n");
+        exit(1);
+    }
+    row_comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
+    if (row_comm_info == NULL)
+    {
+        printf("Error in memory allocation for row_comm_info\n");
+        exit(1);
+    }
+    col_comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
+    if (col_comm_info == NULL)
+    {
+        printf("Error in memory allocation for col_comm_info\n");
+        exit(1);
+    }
+    row_leader_comm_info = (struct comm_info *)malloc(sizeof(struct comm_info));
+    if (row_leader_comm_info == NULL)
+    {
+        printf("Error in memory allocation for row_leader_comm_info\n");
+        exit(1);
+    }
+    MPI_Comm_dup(MPI_COMM_WORLD, &(comm_info->comm));
+    MPI_Comm_rank(MPI_COMM_WORLD, &(comm_info->rank));
+    MPI_Comm_size(MPI_COMM_WORLD, &(comm_info->size));
+
+    /*Check size compatibility for process grid*/
+    if ((pg_row * pg_col) != comm_info->size)
+    {
+        printf("Process grid size incompatible with number of processes spawned\n");
+        exit(1);
+    }
+
+#ifdef AUDIT
+    if (comm_info->rank == 0)
+    {
+        printf("AUDIT -> Number of processes: %d\n", comm_info->size);
+        printf("AUDIT -> Process grid size: %d x %d\n", pg_row, pg_col);
+        printf("AUDIT -> Block size: %d x %d\n", block_size, block_size);
+        printf("AUDIT -> Matrix A path %s size: %d x %d\n", mat_a_path, row_a, col_a);
+        printf("AUDIT -> Matrix B path %s size: %d x %d\n", mat_b_path, row_b, col_b);
+        printf("AUDIT -> Matrix C path %s size: %d x %d\n", mat_c_path, row_a, col_b);
+        printf("AUDIT -> Matrix C path check %s size: %d x %d\n", mat_c_path_check, row_a, col_b);
+    }
+#endif
+
+    // Each process calculates its position in the process grid
+    set_proc_grid_info(pg_col, comm_info);
+
+    /*Create row communicator, each row of processes get the same color as it contributes to the same row of the result matrix
+    in this manner we build a leader-follower architecture to compute the effective row of the result matrix, each follower
+    computes only only A*B and send the result to the leader that will sum the partial results and perform C+=A*B.
+    All the followers work in different zones of the result matrix
+    */
+    create_row_comm(pg_col, comm_info, row_comm_info);
+    create_col_comm(pg_row, comm_info, col_comm_info);
+
+    // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
+    create_row_leader_comm(pg_row, pg_col, comm_info, row_leader_comm_info);
+
+    compute_block_info(row_a, col_a, block_size, block_size, pg_row, pg_col, comm_info, submat_A_info);
+    block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, submat_A_info, comm_info);
+
+#ifdef DEBUG_ELEMENT
+    MPI_Barrier(comm_info->comm);
+    for (int i = 0; i < (submat_A_info->submat_row) * (submat_A_info->submat_col); i++)
+    {
+        printf("DEBUG -> Rank (%d, %d) submat of A: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, submat_A_info->submat[i]);
+    }
+#endif
+
+    compute_row_block_info(row_b, col_b, block_size, pg_row, pg_col, comm_info, submat_B_info);
+    row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info);
+
+#ifdef DEBUG_ELEMENT
+    MPI_Barrier(comm_info->comm);
+    for (int i = 0; i < (submat_B_info->submat_row) * (submat_B_info->submat_col); i++)
+    {
+        printf("DEBUG -> Rank (%d, %d) submat of B: %f\n", comm_info->pg_row_idx, comm_info->pg_col_idx, submat_B_info->submat[i]);
+    }
+#endif
+
+    int submat_A_row = submat_A_info->submat_row;
+    int submat_A_col = submat_A_info->submat_col;
+    int submat_B_col = submat_B_info->submat_col;
+
+    // Allocate partial result submatrix
+    //partial_res = (float *)malloc(submat_A_row * submat_B_col * sizeof(float));
+    partial_res = (float *)calloc(submat_A_row * submat_B_col, sizeof(float));
+    if (partial_res == NULL)
+    {
+        printf("Error in memory allocation for partial matrix result\n");
+        exit(1);
+    }
+
+    // Only the process leader of the row will have the result submat
+    if (row_leader_comm_info->comm != MPI_COMM_NULL)
+    {
+        compute_row_block_info(row_a, col_b, block_size, 1, pg_row, row_leader_comm_info, submat_C_info);
+        row_block_cyclic_distribution(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
+        memcpy(partial_res, submat_C_info->submat, submat_C_info->submat_row * submat_C_info->submat_col * sizeof(float));
+
+#ifdef DEBUG_ELEMENT
+        MPI_Barrier(row_leader_comm_info->comm);
+        for (int i = 0; i < submat_C_info->submat_row * submat_C_info->submat_col; i++)
+        {
+            printf("Rank %d in grid (%d, %d) has element %f of submat of C\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, partial_res[i]);
+        }
+#endif
+    }
+
+#if defined(DEBUG) || defined(DEBUG_ELEMENT)
+    if (row_leader_comm_info->comm == MPI_COMM_NULL)
+        printf("Rank %d in grid (%d, %d) belongs to row comm %d, has %dx%d submat of A, %dx%d submat of B and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_A_row, submat_B_col);
+    else
+        printf("Rank %d in grid (%d, %d) is leader of row comm %d, has %dx%d submat of A, %dx%d submat of B, %dx%d submat of C and %dx%d partial result\n", comm_info->rank, comm_info->pg_row_idx, comm_info->pg_col_idx, comm_info->pg_row_idx, submat_A_row, submat_A_col, submat_B_info->submat_row, submat_B_col, submat_C_info->submat_row, submat_C_info->submat_col, submat_A_row, submat_B_col);
+#endif
+
+    // Perform multiplication of submat
+    column_blocked_matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col);
+
+    // Free submat a and b
+    free(submat_A_info);
+    free(submat_B_info);
+
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
+    for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
+        printf("Rank %d element in pos %d before reduce = %f\n", comm_info->rank, i, partial_res[i]);
+#endif 
+
+    //Reduce reduce on row leaders
+    MPI_Reduce(partial_res, submat_C_info->submat, submat_A_row * submat_B_col, MPI_FLOAT, MPI_SUM, 0, row_comm_info->comm);
+
+
+#ifdef DEBUG_ELEMEN
+    MPI_Barrier(comm_info->comm);
+    if(row_leader_comm_info->comm != MPI_COMM_NULL){
+        for(int i=0; i<submat_C_info->submat_row*submat_C_info->submat_col; i++)
+            printf("Rank %d element in pos %d after reduce = %f\n", comm_info->rank, i, submat_C_info->submat[i]);
+    }
+#endif
+
+    // Free partial result matrix
+    free(partial_res);
+
+    // Leader write result
+    if (row_leader_comm_info->comm != MPI_COMM_NULL)
+    {
+        block_cyclic_write_result(mat_c_path, row_a, col_b, block_size, 1, pg_row, submat_C_info, row_leader_comm_info);
+    }
+
+    // Free submat C
+    free(submat_C_info);
+
+#ifdef CHECK_RESULT
+    MPI_Barrier(comm_info->comm);
+    if (comm_info->rank == 0)
+    {
+        printf("Rank 0 checking result...\n");
+        check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+    }
+#endif
+}
+
+
+void column_blocked_matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2){
+    // For each chunk of columns
+    for (int col_chunk = 0; col_chunk < c2; col_chunk += 16){
+        // For each row in that chunk of columns...
+        for (int row = 0; row < r1; row++){
+            // For each block of elements in this row of this column chunk
+            // Solve for 16 elements at a time
+            for (int tile = 0; tile < c1; tile += 16){
+                // For each row in the tile
+                for (int tile_row = 0; tile_row < 16; tile_row++){
+                    // Solve for each element in this tile row
+                    for (int idx = 0; idx < 16; idx++){
+                        if ((tile + tile_row < c1) && (col_chunk + idx < c2)) {
+                                        res[row * c2 + col_chunk + idx] +=
+                                            mat1[row * c1 + tile + tile_row] *
+                                            mat2[(tile + tile_row) * c2 + col_chunk + idx];
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 void matrix_multiply(float *mat1, float *mat2, float *res, int r1, int c1, int c2, bool res_zero)

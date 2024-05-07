@@ -28,6 +28,10 @@ check:
 clean:
 	rm -f *.o *.a *.out
 
-#pgr and pgc are process grid number of rows and columns
+#np is number of processes, pgr and pgc are process grid number of rows and columns pgr*pgc must be equal to np, bs is block size,
+#path1 is the path of matrix A, row1 and col1 are the number of rows and columns of matrix A, 
+#path2 is the path of matrix B, row2 and col2 are the number of rows and columns of matrix B, 
+#path3 is the path of matrix C, path3_check is the path of matrix C to check the result, out_path is the path of output file
+#blocked_mul is 1 if you want to use blocked matrix multiplication, 0 otherwise
 run:
-	mpirun -n ${np} ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2} ${path3} ${path3_check}
+	mpirun -n ${np} ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2} ${path3} ${path3_check} ${out_path} ${blocked_mul}

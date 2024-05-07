@@ -6,14 +6,15 @@
 #include "mat_mul.h"
 #include <iostream>
 
-void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff);
+void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff, char out_path[128]);
 
 int main(int argc, char *argv[])
 {
     MPI_Init(&argc, &argv);
+    int blocked_mul_flag;
     int pg_row, pg_col, block_size;
     int row_a, col_a, row_b, col_b;
-    char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128];
+    char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128], out_path[128];
     MPI_Comm comm;
     int rank, size;
 
@@ -22,9 +23,9 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     /*Get parameters from cmd*/
-    if (argc < 12)
+    if (argc < 14)
     {
-        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check\n");
+        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check> <out_path> <blocked_mul_flag>\n");
         exit(1);
     }
 
@@ -50,6 +51,12 @@ int main(int argc, char *argv[])
     strcpy(mat_c_path, argv[10]);
     strcpy(mat_c_path_check, argv[11]);
 
+    // Output file path
+    strcpy(out_path, argv[12]);
+
+    // Blocked multiplication flag
+    blocked_mul_flag = atoi(argv[13]);
+
     /*Check size compatibility for matrix multiply*/
     if (col_a != row_b)
     {
@@ -57,9 +64,17 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    double start = MPI_Wtime();
-
-    parallel_matrix_multiplication(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
+    double start;
+    if (blocked_mul_flag == 0){
+        printf("Running non blocked parallel matrix multiplication\n");
+        start = MPI_Wtime();
+        parallel_matrix_multiplication(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
+    }
+    else{
+        printf("Running blocked parallel matrix multiplication\n");
+        start = MPI_Wtime();
+        parallel_matrix_multiplication_blocked(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
+    }
 
     if(rank==0){
         double end = MPI_Wtime();
@@ -77,7 +92,7 @@ int main(int argc, char *argv[])
         std::cout << "\tMax relative diff: "<< err[1] << std::endl;
 
         std::cout << "Writing data on csv..." << std::endl;
-        write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, err[0], err[1]);
+        write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, err[0], err[1], out_path);
         
         std::cout << "Resetting matrix C..." << std::endl;
         reset_matrix_c(mat_c_path, mat_c_path_check);
@@ -88,10 +103,10 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff) {
+void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int col_a, int row_b, int col_b, double gflops, double elapsed_time, float max_diff, float max_rel_diff, char out_path[128]) {
     FILE *fp;
     bool file_exists = false;
-    fp = fopen("data/out/results.csv", "a+"); // "a+" mode opens for reading and appending
+    fp = fopen(out_path, "a+"); // "a+" mode opens for reading and appending
 
     if (fp == NULL) {
         printf("Error opening file!\n");

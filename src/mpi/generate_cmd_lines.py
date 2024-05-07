@@ -32,15 +32,7 @@ if __name__ == "__main__":
             curr_cmd=command.format(n_proc[i], pg_size[i][0], pg_size[i][1], block_size, mat1_size[j][0], mat1_size[j][1], mat1_size[j][0], mat1_size[j][1], mat2_size[j][0], mat2_size[j][1], mat2_size[j][0], mat2_size[j][1], mat3_size[j][0], mat3_size[j][1], mat3_size[j][0], mat3_size[j][1], 'blocked', 1)
             print("Launching ")
             print(curr_cmd)
-            # Launch the C program using subprocess
-            #process = subprocess.Popen(curr_cmd, shell=True)
-            # Wait for the process to finish
-            #process.wait()
             curr_cmd=command.format(n_proc[i], pg_size[i][0], pg_size[i][1], block_size, mat1_size[j][0], mat1_size[j][1], mat1_size[j][0], mat1_size[j][1], mat2_size[j][0], mat2_size[j][1], mat2_size[j][0], mat2_size[j][1], mat3_size[j][0], mat3_size[j][1], mat3_size[j][0], mat3_size[j][1], 'non_blocked', 0)
             print("Launching ")
             print(curr_cmd)
-            # Launch the C program using subprocess
-            #process = subprocess.Popen(curr_cmd, shell=True)
-            # Wait for the process to finish
-            #process.wait()
         
