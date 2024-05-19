@@ -97,6 +97,7 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
     // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
     create_row_leader_comm(pg_row, pg_col, comm_info, row_leader_comm_info);
 
+    // Distribute the matrix A
     compute_block_info(row_a, col_a, block_size, block_size, pg_row, pg_col, comm_info, submat_A_info);
     block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, submat_A_info, comm_info);
 
@@ -108,6 +109,7 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
     }
 #endif
 
+    // Distribute the matrix B
     compute_row_block_info(row_b, col_b, block_size, pg_row, pg_col, comm_info, submat_B_info);
     row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info);
 
@@ -132,7 +134,7 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
         exit(1);
     }
 
-    // Only the process leader of the row will have the result submat
+    // Only the process leader of the row will read C
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
     {
         compute_row_block_info(row_a, col_b, block_size, 1, pg_row, row_leader_comm_info, submat_C_info);
@@ -297,6 +299,7 @@ void parallel_matrix_multiplication_blocked(int pg_row, int pg_col, int block_si
     // Create a communicator with only the row leaders which have to perform the MPI I/O ops on the result matrix file
     create_row_leader_comm(pg_row, pg_col, comm_info, row_leader_comm_info);
 
+    // Distribute the matrix A
     compute_block_info(row_a, col_a, block_size, block_size, pg_row, pg_col, comm_info, submat_A_info);
     block_cyclic_distribution(mat_a_path, row_a, col_a, block_size, pg_row, pg_col, submat_A_info, comm_info);
 
@@ -308,6 +311,7 @@ void parallel_matrix_multiplication_blocked(int pg_row, int pg_col, int block_si
     }
 #endif
 
+    // Distribute the matrix B
     compute_row_block_info(row_b, col_b, block_size, pg_row, pg_col, comm_info, submat_B_info);
     row_block_cyclic_distribution(mat_b_path, row_b, col_b, block_size, pg_row, pg_col, submat_B_info, comm_info);
 
@@ -332,7 +336,7 @@ void parallel_matrix_multiplication_blocked(int pg_row, int pg_col, int block_si
         exit(1);
     }
 
-    // Only the process leader of the row will have the result submat
+    // Only the process leader of the row will read C
     if (row_leader_comm_info->comm != MPI_COMM_NULL)
     {
         compute_row_block_info(row_a, col_b, block_size, 1, pg_row, row_leader_comm_info, submat_C_info);
