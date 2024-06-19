@@ -13,3 +13,7 @@ src/mpi/util/utils.o
 src/mpi/libmy_lib.a
 src/mpi/mat_mul.o
 src/mpi/nohup.out
+/src/mpi_cuda/cuda/CMakeFiles
+/src/mpi_cuda/cuda/cmake_install.cmake
+/src/mpi_cuda/cuda/CMakeCache.txt
+/src/mpi_cuda/cuda/Makefile
