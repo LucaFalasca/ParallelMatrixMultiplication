@@ -4,6 +4,7 @@
 /src/cuda/cmake_install.cmake
 /src/cuda/CMakeCache.txt
 /src/cuda/Makefile
+/src/cuda/matrix_mult
 /src/mpi/data/matrix/bin/
 /src/mpi/data/matrix/txt/
 src/mpi/mat_generator/libmy_lib.a
@@ -13,8 +14,8 @@ src/mpi/util/utils.o
 src/mpi/libmy_lib.a
 src/mpi/mat_mul.o
 src/mpi/nohup.out
-/src/mpi_cuda/cuda/CMakeFiles
-/src/mpi_cuda/cuda/cmake_install.cmake
-/src/mpi_cuda/cuda/CMakeCache.txt
-/src/mpi_cuda/cuda/Makefile
-/src/mpi_cuda/cuda/cuda_prova.cu
+src/mpi_cuda/mat_mul.o
+src/mpi_cuda/mpi_main.o
+src/mpi_cuda/mpi_cuda_main
+src/mpi_cuda/cuda_kernel.o
+
