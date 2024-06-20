@@ -68,7 +68,7 @@ __global__ void gpuMatrixMatrixV4(int m, int k, int n, const float* A,
         // Itero sulle colonne del blocco di colonne di B
         for(int j = 0; j < n_cols; j++){
           // Calcolo l'indice dell'elemento di B corrispondente
-          int icx = (i + j) * k + ic;
+          int icx = (i + j) + n * ic;
           //printf("icx %d --- icx2 %d\n", icx, icx2);
           
           aux[j][tc] += a_shared[tc]*B[icx];
