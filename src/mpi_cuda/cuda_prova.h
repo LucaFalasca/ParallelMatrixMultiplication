@@ -1,1 +1,0 @@
-extern "C" void call_me_maybe();
