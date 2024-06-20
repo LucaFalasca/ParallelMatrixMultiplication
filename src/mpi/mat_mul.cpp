@@ -23,9 +23,10 @@ void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char
         printf("Running parallel accelerated matrix multiplication\n");
         parallel_matrix_multiplication_accelerated(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
     }
-    else
+    else{
         printf("Invalid version\n");
-
+        exit(1);
+    }
 }
 
 void parallel_matrix_multiplication_accelerated(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check)
@@ -184,7 +185,7 @@ void parallel_matrix_multiplication_accelerated(int pg_row, int pg_col, int bloc
     printf("N: %d", n);
     float *A = submat_A_info->submat;
     float *B = submat_B_info->submat;
-    //kernel(m, k, n, submat_A_info->submat, submat_B_info->submat, partial_res);
+    kernel(m, k, n, submat_A_info->submat, submat_B_info->submat, partial_res);
     
     // Free submat a and b
     free(submat_A_info);
