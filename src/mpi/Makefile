@@ -35,3 +35,6 @@ clean:
 #blocked_mul is 1 if you want to use blocked matrix multiplication, 0 otherwise
 run:
 	mpirun -n ${np} ./a.out ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2} ${path3} ${path3_check} ${out_path} ${blocked_mul}
+
+runt4:
+	mpirun -n 1 ./a.out 1 1 2 ../mpi/data/matrix/bin/mat1_500x500.bin 500 500 ../mpi/data/matrix/bin/mat2_500x500.bin 500 500 ../mpi/data/matrix/bin/mat3_500x500.bin ../mpi/data/matrix/bin/mat3_500x500_check.bin ../mpi/data/out/res_mpi_cuda.csv 1

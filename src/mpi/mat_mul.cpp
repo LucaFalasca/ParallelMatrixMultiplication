@@ -7,7 +7,7 @@
 #include <math.h>
 #include "mat_mul.h"
 #include <cstdlib>
-#include "../cuda/kernel.h"
+//#include "../cuda/kernel.h"
 
 void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check, int version)
 {
@@ -184,7 +184,8 @@ void parallel_matrix_multiplication_accelerated(int pg_row, int pg_col, int bloc
     printf("N: %d", n);
     float *A = submat_A_info->submat;
     float *B = submat_B_info->submat;
-    kernel(m, k, n, submat_A_info->submat, submat_B_info->submat, partial_res);
+    //kernel(m, k, n, submat_A_info->submat, submat_B_info->submat, partial_res);
+    
     // Free submat a and b
     free(submat_A_info);
     free(submat_B_info);
@@ -1135,7 +1136,7 @@ float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[
     // Reset matrix C for repeatability before calculation
     reset_matrix_c(mat_c_path, mat_c_path_check);
 
-//#ifdef DEBUG_ELEMENT
+#ifdef DEBUG_ELEMENT
     printf("Matrix A\n");
     for (int i = 0; i < r1; i++)
     {
@@ -1175,7 +1176,7 @@ float *check_result(char mat_a_path[128], char mat_b_path[128], char mat_c_path[
         }
         printf("\n");
     }
-//#endif
+#endif
 
     int i, j, k;
     matrix_multiply(mat_a, mat_b, mat_c_check, r1, c1, c2, false);

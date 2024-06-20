@@ -9,7 +9,7 @@ void printMatrix(float *mat, int row, int col);
 
 int main(int argc, char *argv[]){
     int r1, c1, r2, c2, isZero, isDummy;
-    char mat1path_txt[128], mat2path_txt[128], mat2_trasp_path_txt[128], mat3_path_txt[128],mat1path_bin[128], mat2path_bin[128], mat2_trasp_path_bin[128], mat3_path_bin[128], mat3_path_bin_check[128];
+    char mat1path_txt[128], mat2path_txt[128], mat3_path_txt[128],mat1path_bin[128], mat2path_bin[128], mat2_trasp_path_bin[128], mat3_path_bin[128], mat3_path_bin_check[128];
     float *mat1, *mat2, *mat2_trasp, *mat3;
     if(argc<10){
         printf("Usage ./a.out <mat1path> <rows1> <cols1> <mat2path> <rows2> <cols2> <mat3path> <isZero> <isDummy>\n");
@@ -25,8 +25,6 @@ int main(int argc, char *argv[]){
     //Matrix 2
     strcpy(mat2path_txt, argv[4]);
     strcpy(mat2path_bin, argv[4]);
-    strcpy(mat2_trasp_path_txt, argv[4]);
-    strcpy(mat2_trasp_path_bin, argv[4]);
     r2 = atoi(argv[5]);
     c2 = atoi(argv[6]);
 
@@ -56,23 +54,11 @@ int main(int argc, char *argv[]){
     strcat(mat2path_txt, argv[6]);
     strcat(mat2path_txt, ".txt");
 
-    strcat(mat2path_txt, "txt/mat2_");
-    strcat(mat2path_txt, argv[5]);
-    strcat(mat2path_txt, "x");
-    strcat(mat2path_txt, argv[6]);
-    strcat(mat2path_txt, "trasp.txt");
-
     strcat(mat2path_bin, "bin/mat2_");
     strcat(mat2path_bin, argv[5]);
     strcat(mat2path_bin, "x");
     strcat(mat2path_bin, argv[6]);
     strcat(mat2path_bin, ".bin");
-
-    strcat(mat2path_bin, "bin/mat2_");
-    strcat(mat2path_bin, argv[5]);
-    strcat(mat2path_bin, "x");
-    strcat(mat2path_bin, argv[6]);
-    strcat(mat2path_bin, "trasp.bin");
 
     strcat(mat3_path_txt, "txt/mat3_");
     strcat(mat3_path_txt, argv[2]);
@@ -99,12 +85,10 @@ int main(int argc, char *argv[]){
     if(isDummy){
         mat1 = generate_dummy_matrix(r1, c1, 1.0);
         mat2 = generate_dummy_matrix(r2, c2, 1.0);
-        mat2_trasp = generate_dummy_matrix(c2, r2, 1.0);
     }
     else{
         mat1 = generate_matrix(r1, c1);
         mat2 = generate_matrix(r2, c2);
-        mat2_trasp = generate_dummy_matrix(c2, r2, 1.0);
     }
 
     if((!isZero)&&(!isDummy))
@@ -126,9 +110,6 @@ int main(int argc, char *argv[]){
 
     printf("Writing matrix 2 to %s and %s\n", mat2path_txt, mat2path_bin);
     write_matrix(mat2, r2, c2, mat2path_txt, mat2path_bin);
-
-    printf("Writing matrix 2 trasp to %s and %s\n", mat2_trasp_path_txt, mat2_trasp_path_bin);
-    write_matrix(mat2_trasp, c2, r2, mat2_trasp_path_txt, mat2_trasp_path_bin);
 
     printf("Writing matrix 3 to %s and %s\n", mat3_path_txt, mat3_path_bin);
     write_matrix(mat3, r1, c2, mat3_path_txt, mat3_path_bin);
