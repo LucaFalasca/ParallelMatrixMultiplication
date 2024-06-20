@@ -177,11 +177,11 @@ void parallel_matrix_multiplication_accelerated(int pg_row, int pg_col, int bloc
 #endif
 
     // Perform multiplication of submat
-    column_blocked_matrix_multiply(submat_A_info->submat, submat_B_info->submat, partial_res, submat_A_row, submat_A_col, submat_B_col);
-
+    // TODO
     // Free submat a and b
     free(submat_A_info);
     free(submat_B_info);
+    return;
 
 #ifdef DEBUG_ELEMEN
     MPI_Barrier(comm_info->comm);

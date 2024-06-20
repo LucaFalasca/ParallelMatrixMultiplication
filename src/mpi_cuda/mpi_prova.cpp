@@ -1,5 +1,5 @@
 #include <mpi.h>
-#include "cuda/cuda_prova.h"
+#include "cuda_prova.h"
 
 
  

@@ -8,6 +8,7 @@
  __global__ void __multiply__ (float *t)
  {
     t[0] = 150;
+   printf("prova\n");
     /* ... */
  }
  
@@ -23,7 +24,8 @@ extern "C" void call_me_maybe()
 
    float *res;
    //faccio la malloc
-   res = (float *)malloc(1*sizeof(float));
+   //res = (float *)malloc(1*sizeof(float));
+   res = new float[1];
    res[0] = 0;
    cudaMemcpy(res, t, 1*sizeof(float),cudaMemcpyDeviceToHost);
    checkCudaErrors(cudaDeviceSynchronize());
