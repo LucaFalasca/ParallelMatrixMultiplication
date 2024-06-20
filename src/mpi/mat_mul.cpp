@@ -7,7 +7,7 @@
 #include <math.h>
 #include "mat_mul.h"
 #include <cstdlib>
-//#include "../cuda/kernel.h"
+#include "../cuda/kernel.h"
 
 void parallel_matrix_multiplication(int pg_row, int pg_col, int block_size, char *mat_a_path, int row_a, int col_a, char *mat_b_path, int row_b, int col_b, char *mat_c_path, char *mat_c_path_check, int version)
 {
