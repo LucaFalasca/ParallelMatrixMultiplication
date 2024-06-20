@@ -11,7 +11,7 @@ void write_result(int num_procs, int pr, int pc, int block_size, int row_a, int 
 int main(int argc, char *argv[])
 {
     MPI_Init(&argc, &argv);
-    int blocked_mul_flag;
+    int mul_version;
     int pg_row, pg_col, block_size;
     int row_a, col_a, row_b, col_b;
     char mat_a_path[128], mat_b_path[128], mat_c_path[128], mat_c_path_check[128], out_path[128];
@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     /*Get parameters from cmd*/
     if (argc < 14)
     {
-        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check> <out_path> <blocked_mul_flag>\n");
+        printf("Usage ./a.out <nrproc> <ncproc> <blocks> <matApath> <rowsA> <colsA> <matBpath> <rowsB> <colsB> <matCpath> <matCpath_check> <out_path> <naive/blocked/accelerated_mul>\n");
         exit(1);
     }
 
@@ -54,8 +54,8 @@ int main(int argc, char *argv[])
     // Output file path
     strcpy(out_path, argv[12]);
 
-    // Blocked multiplication flag
-    blocked_mul_flag = atoi(argv[13]);
+    // Matrix multiplication version
+    mul_version = atoi(argv[13]);
 
     /*Check size compatibility for matrix multiply*/
     if (col_a != row_b)
@@ -65,16 +65,8 @@ int main(int argc, char *argv[])
     }
 
     double start;
-    if (blocked_mul_flag == 0){
-        printf("Running non blocked parallel matrix multiplication\n");
-        start = MPI_Wtime();
-        parallel_matrix_multiplication(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
-    }
-    else{
-        printf("Running blocked parallel matrix multiplication\n");
-        start = MPI_Wtime();
-        parallel_matrix_multiplication_blocked(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check);
-    }
+    start = MPI_Wtime();
+    parallel_matrix_multiplication(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check, mul_version);
 
     if(rank==0){
         double end = MPI_Wtime();
