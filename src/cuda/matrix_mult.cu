@@ -14,17 +14,19 @@
 #include <math.h>
 
 //#define _DEBUG
-//#define NO_CPU
+//#define _PRINT_MATRIX
+#define NO_CPU
+#define SIMULATIONS
 // Simple 1-D thread block
 // Size should be at least 1 warp 
-#define BD 256
-#define BD2 28
-#define COLS 28
+#define BD 512
+#define BD2 12
+#define COLS 11
 
 const dim3 BLOCK_DIM(BD);
 
 // Simple CPU implementation of matrix addition.
-void CpuMatrixVector(int m, int k, int n, const float* A, const float* x, float* y) {
+void CpuMatrixMatrix(int m, int k, int n, const float* A, const float* x, float* y) {
   float t=0.0;
   for (int row = 0; row < m; ++row) {
     for(int i = 0; i < n; i++){
@@ -85,7 +87,7 @@ __device__ void rowReduce2(volatile float *sdata, int tid, int s) {
 }
 
 
-__global__ void gpuMatrixMatrixUpgradeReduce(int m, int k, int n, const float* A,
+__global__ void gpuMatrixMatrixV4(int m, int k, int n, const float* A,
 				const float* B, float* C) {
   __shared__ float aux[COLS][BD];
   int tc     = threadIdx.x;
@@ -176,7 +178,7 @@ __global__ void gpuMatrixMatrixUpgradeReduce(int m, int k, int n, const float* A
   }
 }
 
-__global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
+__global__ void gpuMatrixMatrixV3(int m, int k, int n, const float* A,
 				const float* B, float* C) {
   __shared__ float aux[COLS][BD];
   int tc     = threadIdx.x;
@@ -256,74 +258,8 @@ __global__ void gpuMatrixMatrix(int m, int k, int n, const float* A,
   }
 }
 
-__global__ void gpuMatrixVectorV4(int m, int k, int n, const float* A,
-				const float* B, float* y) {
-  __shared__ float aux[BD2][BD];
-  int tc     = threadIdx.x;
-  int row    = blockIdx.x;
-  int s = min(16,BD/2);
-  int size = BD2;
-  __shared__ float a_shared[BD];
-  
-  if (row < m) {
-    
-    // Itero per ogni colonna della matrice B (n)
-    for(int i = 0; i < n; i+= BD2){
-      if(i + BD2 > n) size = n % BD2;
-      for(int j = 0; j < size; j++) aux[j][tc] = 0.0;
-      int idxm = row*k+tc;
-      for (int ic= tc;  ic<k; ic += blockDim.x) {
-        a_shared[tc] = A[idxm];
-        for(int j = 0; j < size; j++){
-          int icx = i * k + ic + j * k;
-          aux[j][tc] += a_shared[tc]*B[icx];
-          #ifdef _DEBUG
-          printf("{Blocco %d} P%d-A[%d]: %f --- B[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
-          #endif
-        }
-        idxm +=  blockDim.x;
-      }
-      
-      
-    
-      __syncthreads();
-      //print aux matrix
-      #ifdef _DEBUG
-      if(tc == 0){
-        for(int j = 0; j < size; j++){
-          for(int k = 0; k < BD; k++){
-            printf("[BEFORE]row->%d aux[%d][%d]: %f\n", row, j, k, aux[j][k]);
-          }
-        }
-      }
-      #endif
-      for(int j = 0; j < size; j++){
-        for (int s2=BD/2; s2 >=32; s2 >>=1){
-          if (tc<s2)
-            aux[j][tc] += aux[j][tc+s2]; 
-          __syncthreads();
-        }
-      }
 
-      for(int j = 0; j < size; j++){
-        if (tc < s) rowReduce2(&(aux[j][0]),tc,s);
-
-        if (tc == 0){
-          #ifdef _DEBUG
-          if(1)
-          printf("[AFTER REDUCE]row->%d aux[%d][%d]: %f\n", row, j, tc, aux[j][tc]);
-          printf("[FINAL] y[%d] = aux[%d][%d]: %f\n", i + j + row * n, j, tc, aux[j][tc]);
-          #endif
-
-          y[i + j + row * n] += aux[j][tc];
-        }
-      }
-    
-    }
-  }
-}
-
-__global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
+__global__ void gpuMatrixMatrixV2(int m, int k, int n, const float* A,
 				const float* B, float* y) {
   __shared__ float aux[BD][BD2];
   int tc     = threadIdx.x;
@@ -393,66 +329,7 @@ __global__ void gpuMatrixVectorV3(int m, int k, int n, const float* A,
 }
 
 
-__global__ void gpuMatrixVectorV2(int m, int k, int n, const float* A,
-				const float* B, float* y) {
-  __shared__ float aux[BD];
-  extern __shared__ float row_shared[];
-
-  int tc     = threadIdx.x;
-  int row    = blockIdx.x;
-  int size_shared_vec = abs(k / BD);
-  
-  if (row < m) {
-    
-    // Itero per ogni colonna della matrice B (n)
-    for(int i = 0; i < n; i++){
-      int idxm = row*k+tc;
-      float t  = 0.0;
-      int q = 0;
-      aux[tc] = 0.0;
-      int irs = 0;
-      //ogni processo prende e moltiplica solo alcuni pezzi della matrice A per i corrispendenti della colonna i di B
-      for (int ic= tc;  ic<k; ic += blockDim.x) {
-        int icx = i * n + ic;
-        irs = q + size_shared_vec * tc + k % BD * (tc != 0);
-        if(i == 0){
-          //Se sto facendo la riga per la prima colonna allora prendo i valori dalla memoria globale e li metto in shared
-          //dato che mi serviranno per le altre colonne
-          int row_temp = A[idxm];
-          row_shared[irs] = row_temp;
-          t+= row_temp*B[icx];
-        }
-        else{
-          //Se sto facendo la riga per le altre colonne allora prendo i valori dalla memoria shared
-          t += row_shared[q + size_shared_vec * tc]*B[icx];
-          //t += A[idxm]*B[icx];
-          #ifdef _DEBUG
-          printf("{Blocco %d} P%d-A[%d]: %f --- x[%d]: %f\n", row, tc, idxm, A[idxm], icx, B[icx]); 
-          #endif
-        }
-        q++;
-        idxm +=  blockDim.x;
-      }
-      aux[tc] = t;
-    
-    
-      __syncthreads();
-      for (int s=BD/2; s >=32; s >>=1){
-        if (tc<s)
-          aux[tc] += aux[tc+s]; 
-        __syncthreads();
-      }
-    
-      
-      if (tc<16) rowReduce(aux,tc);
-      
-      if (tc == 0)
-        y[i + row * n] = aux[tc];
-    }
-  }
-}
-
-__global__ void gpuMatrixVectorV1(int m, int k, int n, const float* A,
+__global__ void gpuMatrixMatrixV1(int m, int k, int n, const float* A,
 				const float* B, float* y) {
   __shared__ float aux[BD];
   int tc     = threadIdx.x;
@@ -493,6 +370,47 @@ __global__ void gpuMatrixVectorV1(int m, int k, int n, const float* A,
   }
 }
 
+void host_matrix_initialisation(int m, int k, int n, float* h_A, float* h_B, float* h_y){
+    srand(123456);
+    #ifdef _DEBUG 
+    std::cout << "Matrix A: " << std::endl;
+    #endif
+    for (int row = 0; row < m; ++row) {
+      for (int col = 0; col < k; ++col) {
+        int idx = row * k + col;
+        h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+        #ifdef _PRINT_MATRIX 
+        std::cout << "|" << h_A[idx] << "";
+        #endif
+      }
+      #ifdef _PRINT_MATRIX
+      std::cout << "|" << std::endl;
+      #endif
+      h_y[row] = 0.0;
+    }
+    #ifdef _PRINT_MATRIX
+    std::cout << "\nMatrix B:" << std::endl;
+    #endif
+    for (int col = 0; col < k; ++col) {
+      for(int row = 0; row < n; ++row){
+        int idx = row * k + col;
+        h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+        #ifdef _PRINT_MATRIX
+        std::cout << "|" << h_B[idx] << "";
+        #endif
+      }
+      #ifdef _PRINT_MATRIX
+      std::cout << "|"<< std::endl;
+      #endif
+    }
+    memset(h_y, 0, m * n * sizeof(float));
+  }
+
+extern "C" void call_me_maybe(){
+  printf("prova\n");
+}
+
+
 int main(int argc, char** argv) {
 
   if (argc < 3) {
@@ -504,6 +422,7 @@ int main(int argc, char** argv) {
   
   
   // ----------------------- Host memory initialisation ----------------------- //
+  
 
   float* h_A = new float[m * k];
   float* h_B = new float[k * n];
@@ -518,27 +437,27 @@ int main(int argc, char** argv) {
     for (int col = 0; col < k; ++col) {
       int idx = row * k + col;
       h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-      #ifdef _DEBUG 
+      #ifdef _PRINT_MATRIX 
       std::cout << "|" << h_A[idx] << "";
       #endif
     }
-    #ifdef _DEBUG 
+    #ifdef _PRINT_MATRIX
     std::cout << "|" << std::endl;
     #endif
     h_y[row] = 0.0;
   }
-  #ifdef _DEBUG 
+  #ifdef _PRINT_MATRIX
   std::cout << "\nMatrix B:" << std::endl;
   #endif
   for (int col = 0; col < k; ++col) {
     for(int row = 0; row < n; ++row){
       int idx = row * k + col;
       h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-      #ifdef _DEBUG 
+      #ifdef _PRINT_MATRIX
       std::cout << "|" << h_B[idx] << "";
       #endif
     }
-    #ifdef _DEBUG 
+    #ifdef _PRINT_MATRIX
     std::cout << "|"<< std::endl;
     #endif
   }
@@ -573,7 +492,7 @@ int main(int argc, char** argv) {
   
   #ifndef NO_CPU
   timer->start();
-  CpuMatrixVector(m, k, n, h_A, h_B, h_y);
+  CpuMatrixMatrix(m, k, n, h_A, h_B, h_y);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
@@ -585,63 +504,55 @@ int main(int argc, char** argv) {
   // Calculate the dimension of the grid of blocks (1D) needed to cover all
   // entries in the matrix and output vector
   const dim3 GRID_DIM(m,1);
-  size_t smemSize = k * sizeof(float);
   float gpuflops;
 
-  //printf("size of shared memory: %d\n", smemSize);
-  
+  printf("size of shared memory: %d\n", BD * sizeof(float));
   timer->reset();
   timer->start();
-  gpuMatrixVectorV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixMatrixV1<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time global memory v1: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time V1: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   float* zero = new float[m * n];
   memset(zero, 0, m * n * sizeof(float));
   checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
   
-  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
+  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float));
   timer->reset();
   timer->start();
   cudaProfilerStart();
-  gpuMatrixVectorV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixMatrixV2<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  cudaProfilerStop();
+  checkCudaErrors(cudaDeviceSynchronize());
+
+  printf("size of shared memory: %d\n", BD * COLS * sizeof(float) + BD * sizeof(float));
+  timer->reset();
+  timer->start();
+  cudaProfilerStart();
+  gpuMatrixMatrixV3<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time v4: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time V3: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
 
-  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
+  printf("size of shared memory: %d\n", BD * COLS * sizeof(float) + BD * sizeof(float));
   timer->reset();
   timer->start();
   cudaProfilerStart();
-  gpuMatrixMatrix<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+  gpuMatrixMatrixV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
   cudaProfilerStop();
   checkCudaErrors(cudaDeviceSynchronize());
 
   timer->stop();
   gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time Last one: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
-
-  checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
-
-  printf("size of shared memory: %d\n", BD * BD2 * sizeof(float) + BD * sizeof(float));
-  timer->reset();
-  timer->start();
-  cudaProfilerStart();
-  gpuMatrixMatrixUpgradeReduce<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
-  cudaProfilerStop();
-  checkCudaErrors(cudaDeviceSynchronize());
-
-  timer->stop();
-  gpuflops=flopcnt/ timer->getTime();
-  std::cout << "  GPU time Reduce upgrade: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+  std::cout << "  GPU time V4: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
 
   
 
@@ -693,6 +604,113 @@ int main(int argc, char** argv) {
   // corresponds to IEEE single precision, so unit roundoff is
   // 1.19e-07
   // 
+  #endif
+  
+  
+
+  // ------------------------ Simulation of different sizes ------------------------- //
+
+  #ifdef SIMULATIONS
+  std::cout << "Simulation: " << std::endl;
+
+  // int ms[13] = {
+  //   32,
+  //   64,
+  //   100,
+  //   128,
+  //   256,
+  //   512, 
+  //   1000, 
+  //   1024,
+  //   2048,
+  //   4096,
+  //   8192,
+  //   10032, 
+  //   16384};
+  int ms[1] = {
+    10032
+  };
+
+  // int ks[5] = {
+  //   0,
+  //   32,
+  //   64,
+  //   128,
+  //   156
+  // };
+
+  int ks[1] = {
+    0
+  };
+
+  int n_iterations = 5;
+
+  std::ofstream file;
+  file.open("results.csv", std::ios_base::app);
+  file << "m,k,n,time,flops, BD, COL" << std::endl;
+  for(int mn : ms){
+    for(int k : ks){
+      float sum_gflops = 0;
+      for(int i = 0; i < n_iterations; i++){
+        m = mn;
+        n = mn;
+        if(k == 0)
+          k = mn;
+        if(mn == 0)
+          std::cout << "Error: m or n cannot be 0" << std::endl;
+        float flopcnt=2.e-6*m*k*n;
+
+        float* h_A = new float[m * k];
+        float* h_B = new float[k * n];
+        float* h_y = new float[m * n];
+        float* h_y_d = new float[m * n];
+
+        host_matrix_initialisation(m, k, n, h_A, h_B, h_y);
+
+        float *d_A, *d_B, *d_y;
+
+        //device_matrix_initialisation(m, k, n, d_A, d_B, d_y, h_A, h_B, h_y);
+        checkCudaErrors(cudaMalloc((void**) &d_A, m * k * sizeof(float)));
+        checkCudaErrors(cudaMalloc((void**) &d_B, k * n * sizeof(float)));
+        checkCudaErrors(cudaMalloc((void**) &d_y, m * n * sizeof(float)));
+
+        // Copy matrices from the host (CPU) to the device (GPU).
+        checkCudaErrors(cudaMemcpy(d_A, h_A, m * k * sizeof(float), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_B, h_B, k * n * sizeof(float), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_y, h_y, m * n * sizeof(float), cudaMemcpyHostToDevice));
+
+        const dim3 GRID_DIM(m,1);
+        float gpuflops;
+
+        //printf("size of shared memory: %d\n", smemSize);
+
+        float* zero = new float[m * n];
+        memset(zero, 0, m * n * sizeof(float));
+        checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
+        
+        timer->reset();
+        timer->start();
+        
+        cudaProfilerStart();
+        gpuMatrixMatrixV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
+        cudaProfilerStop();
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        timer->stop();
+        gpuflops=flopcnt/ timer->getTime();
+        std::cout << "  m = " << m  << " | k = " << k << "| n = "<< n << std::endl;
+        std::cout << "  GPU time Reduce upgrade: " << timer->getTime() << " ms." << " GFLOPS " << gpuflops<<std::endl;
+        sum_gflops += gpuflops;
+      }
+      float gpuflops_mean = sum_gflops / n_iterations;
+      //scrivo su file csv i risultati
+      if(file.is_open()){
+        file << m << "," << k << "," << n << "," << timer->getTime() << "," << gpuflops_mean << "," << BD << "," << COLS << std::endl;
+      }
+    }
+  }
+  
+  
   #endif
 
 // ------------------------------- Cleaning up ------------------------------ //
