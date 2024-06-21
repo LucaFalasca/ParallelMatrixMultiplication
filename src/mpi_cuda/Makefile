@@ -4,8 +4,14 @@ build:
 	mpic++ -O3 -c ../mpi/mat_mul.cpp -o mat_mul.o 
 	mpic++ -c ../mpi/main.cpp -o mpi_main.o 
 	mpic++ mpi_main.o mat_mul.o cuda_kernel.o -L/opt/cuda/12.3/lib64 -lcudart -o mpi_cuda_main
+
 run:
-	mpirun -n ${np} ./cuda_mpi_main ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2} ${path3} ${path3_check} ${out_path} ${blocked_mul}
+	mpirun -n ${np} ./cuda_mpi_main ${pgr} ${pgc} ${bs} ${path1} ${row1} ${col1} ${path2} ${row2} ${col2} ${path3} ${path3_check} ${out_path} ${mul_version}
+#np is number of processes, pgr and pgc are process grid number of rows and columns pgr*pgc must be equal to np, bs is block size,
+#path1 is the path of matrix A, row1 and col1 are the number of rows and columns of matrix A, 
+#path2 is the path of matrix B, row2 and col2 are the number of rows and columns of matrix B, 
+#path3 is the path of matrix C, path3_check is the path of matrix C to check the result, out_path is the path of output file
+#mul_vers is 2 if you want gpu accelerated multiplication, is 1 if you want to use blocked matrix multiplication, 0 otherwise
 
 clean:
 	rm *.o mpi_cuda_main
