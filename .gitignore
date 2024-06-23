@@ -13,6 +13,7 @@ src/mpi/mat_generator/mat_generator.o
 src/mpi/util/utils.o
 src/mpi/libmy_lib.a
 src/mpi/mat_mul.o
+src/mpi/cuda_kernel.o
 src/mpi/nohup.out
 src/mpi_cuda/mat_mul.o
 src/mpi_cuda/mpi_main.o
