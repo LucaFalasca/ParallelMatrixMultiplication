@@ -18,4 +18,7 @@ src/mpi_cuda/mat_mul.o
 src/mpi_cuda/mpi_main.o
 src/mpi_cuda/mpi_cuda_main
 src/mpi_cuda/cuda_kernel.o
+src/mpi/mpi_main.o
+/src/mpi_cuda/data/matrix/bin/
+/src/mpi_cuda/data/matrix/txt/
 
