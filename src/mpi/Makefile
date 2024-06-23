@@ -4,7 +4,7 @@ build_cuda:
 	nvcc -arch=sm_75 -lineinfo -Xcompiler=-O3 -Xptxas=-v -c ../cuda/kernel.cu -o cuda_kernel.o -I/opt/cuda/12.3/samples/Common/ 
 	mpic++ -O3 -c ../mpi/mat_mul.cpp -o mat_mul.o 
 	mpic++ -c ../mpi/main.cpp -o mpi_main.o 
-	mpic++ mpi_main.o mat_mul.o cuda_kernel.o -L/opt/cuda/12.3/lib64 -lcudart -o mpi_cuda_main
+	mpic++ mpi_main.o mat_mul.o cuda_kernel.o -L/opt/cuda/12.3/lib64 -lcudart
 
 build:
 	mpic++ -O3 -c mat_mul.cpp -o mat_mul.o 

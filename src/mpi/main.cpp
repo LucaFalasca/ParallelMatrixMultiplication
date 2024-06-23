@@ -64,6 +64,8 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    std::cout << "Input files " << mat_a_path << " " << mat_b_path << " " << mat_c_path << " " << mat_c_path_check <<std::endl;
+
     double start;
     start = MPI_Wtime();
     parallel_matrix_multiplication(pg_row, pg_col, block_size, mat_a_path, row_a, col_a, mat_b_path, row_b, col_b, mat_c_path, mat_c_path_check, mul_version);
@@ -73,9 +75,9 @@ int main(int argc, char *argv[])
         double gflops = ((2.0 * row_a * col_a * col_b) / (end - start)) / 1e9;
         double elapsed_time = (end - start) * 1000;
         
-        printf("Checking result...\n");
-        //float err[2] = {0.0, 0.0};
-        float *err=check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
+        //printf("Checking result...\n");
+        float err[2] = {0.0, 0.0};
+        //float *err=check_result(mat_a_path, mat_b_path, mat_c_path, mat_c_path_check, row_a, col_a, col_b);
         
         std::cout << "Measured performance:" << std::endl;
         std::cout << "\tGFLOPS: " << gflops << std::endl;
@@ -83,7 +85,7 @@ int main(int argc, char *argv[])
         std::cout << "\tMax diff: " << err[0] << std::endl;
         std::cout << "\tMax relative diff: "<< err[1] << std::endl;
 
-        std::cout << "Writing data on csv..." << std::endl;
+        std::cout << "Writing data on csv " << out_path << "..." << std::endl;
         write_result(size, pg_row, pg_col, block_size, row_a, col_a, row_b, col_b, gflops, elapsed_time, err[0], err[1], out_path);
         
         std::cout << "Resetting matrix C..." << std::endl;

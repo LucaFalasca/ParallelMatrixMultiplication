@@ -19,7 +19,7 @@ def generate_sizes(mat_nm_sizes, mat_k_sizes):
     return mat1_size, mat2_size, mat3_size
 
 def run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, blocked_string, blocked_flag):
-    command = "mpirun -n {} ./a.out {} {} {} data/matrix/bin/mat1_{}x{}.bin {} {} data/matrix/bin/mat2_{}x{}.bin {} {} data/matrix/bin/mat3_{}x{}.bin data/matrix/bin/mat3_{}x{}_check.bin data/matrix/bin/result_{}.csv {}"
+    command = "mpirun -n {} ./a.out {} {} {} data/matrix/bin/mat1_{}x{}.bin {} {} data/matrix/bin/mat2_{}x{}.bin {} {} data/matrix/bin/mat3_{}x{}.bin data/matrix/bin/mat3_{}x{}_check.bin data/out/result_{}.csv {}"
     for i in range(0, len(n_proc)):
         for j in range(0, len(mat1_size)):
             if not blocked_flag:
@@ -50,5 +50,7 @@ if __name__ == "__main__":
     
     #Blocked matrix multiplication
     run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'blocked', 1)
+
+    run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'accelerated', 2)
     
         
