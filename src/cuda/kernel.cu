@@ -241,7 +241,4 @@ extern "C" void kernel(int m, int k, int n, float* A, float* B, float* y){
   checkCudaErrors(cudaFree(d_A));
   checkCudaErrors(cudaFree(d_B));
   checkCudaErrors(cudaFree(d_y));
-  delete[] h_A;
-  delete[] h_B;
-  delete[] h_y;
 }
