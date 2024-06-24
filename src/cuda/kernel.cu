@@ -127,9 +127,15 @@ __global__ void gpuMatrixMatrixV4(int m, int k, int n, const float* A,
 }
 
 extern "C" void kernel(int m, int k, int n, float* A, float* B, float* y){  
+   // Create the CUDA SDK timer.
+  
+  StopWatchInterface* timer = 0;
+  sdkCreateTimer(&timer);
+  timer->reset();
+  timer->start();
+
   // ----------------------- Host memory initialisation ----------------------- //
   
-
   float* h_A = A;
   float* h_B = B;
   float* h_y = y;
@@ -192,14 +198,11 @@ extern "C" void kernel(int m, int k, int n, float* A, float* B, float* y){
   memset(zero, 0, m * n * sizeof(float));
   checkCudaErrors(cudaMemcpy(d_y, zero, m * n * sizeof(float), cudaMemcpyHostToDevice));
 
-  // ------------------------ Calculations on the CPU ------------------------- //
-  
   float flopcnt=2.e-6*m*k*n;
   
-  // Create the CUDA SDK timer.
-  
-  StopWatchInterface* timer = 0;
-  sdkCreateTimer(&timer);
+ 
+  timer->stop();
+  std::cout << "  Data transfer time: " << timer->getTime() << " ms." << std::endl;
 
 // ------------------------ Calculations on the GPU ------------------------- //
 
@@ -207,7 +210,7 @@ extern "C" void kernel(int m, int k, int n, float* A, float* B, float* y){
   // entries in the matrix and output vector
   const dim3 GRID_DIM(m,1);
   float gpuflops;
-  printf("size of shared memory: %d\n", BD * COLS * sizeof(float) + BD * sizeof(float));
+  //printf("size of shared memory: %d\n", BD * COLS * sizeof(float) + BD * sizeof(float));
   timer->reset();
   timer->start();
   gpuMatrixMatrixV4<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_y);
