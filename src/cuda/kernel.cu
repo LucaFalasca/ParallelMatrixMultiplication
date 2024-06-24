@@ -6,9 +6,8 @@
 
 
 
-#define BD 512
-#define BD2 12
-#define COLS 11
+#define BD 256
+#define COLS 28
 //#define _DEBUG
 
 const dim3 BLOCK_DIM(BD);
