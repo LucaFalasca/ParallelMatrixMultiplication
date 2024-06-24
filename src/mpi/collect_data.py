@@ -38,18 +38,17 @@ if __name__ == "__main__":
     pg_size = [[1, 1], [2, 1], [2, 2], [3, 2], [4, 2], [4, 3], [4, 4], [5, 4]]
     block_size=32
     
-    #mat_nm_sizes = [32, 64 ,128, 256, 400, 512, 800, 1024, 2048, 3000, 4096, 6000, 8192, 10000]
-    mat_nm_sizes = [32, 64 ,100, 250, 400, 600, 800, 1000, 2000, 3000, 4000, 6000, 8000, 10000]
+    mat_nm_sizes = [32, 64 ,128, 256, 400, 512, 800, 1024, 2048, 3000, 4096, 6000, 8192, 10000]
     mat_k_sizes =[32, 64, 128, 156]
     mat_k_sizes =[32, 64, 128, 156]
     
     mat1_size, mat2_size, mat3_size = generate_sizes(mat_nm_sizes, mat_k_sizes)
     
     #Unblocked matrix multiplication
-    run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'non_blocked', 0)
+    #run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'non_blocked', 0)
     
     #Blocked matrix multiplication
-    run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'blocked', 1)
+    #run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'blocked', 1)
 
     run_experiment(n_proc, pg_size, block_size, mat1_size, mat2_size, mat3_size, 'accelerated', 2)
     
